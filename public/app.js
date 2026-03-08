@@ -9,6 +9,7 @@ const state = {
   mode: 'idle',
   lastReply: '',
   speechRate: 1,
+  ttsCharIndex: 0, // track current position in text
   recognition: null,
   finalTranscript: '',
   interimTranscript: '',
@@ -266,9 +267,17 @@ function showTtsControls() {
   ui.ttsControls.classList.remove('hidden');
 }
 
-function speakReply(text, isReplay = false) {
+function speakReply(text, { fromIndex = 0, isReplay = false } = {}) {
   state.lastReply = text;
   showTtsControls();
+
+  // Reset char index for fresh plays
+  if (isReplay || fromIndex === 0) {
+    state.ttsCharIndex = 0;
+  }
+
+  const textToSpeak = text.slice(fromIndex);
+  if (!textToSpeak) { setMode('idle'); return Promise.resolve(); }
 
   return new Promise((resolve) => {
     if (!window.speechSynthesis) {
@@ -277,18 +286,16 @@ function speakReply(text, isReplay = false) {
       return;
     }
 
-    // Cancel any ongoing speech
     speechSynthesis.cancel();
     setMode('speaking');
 
     const safetyTimeout = setTimeout(() => {
-      console.warn('TTS safety timeout');
       speechSynthesis.cancel();
       setMode('idle');
       resolve();
     }, 30000);
 
-    const utterance = new SpeechSynthesisUtterance(text);
+    const utterance = new SpeechSynthesisUtterance(textToSpeak);
     utterance.lang = 'zh-TW';
     utterance.rate = state.speechRate;
 
@@ -298,8 +305,14 @@ function speakReply(text, isReplay = false) {
       || voices.find(v => v.lang.startsWith('zh'));
     if (zhVoice) utterance.voice = zhVoice;
 
+    // Track position for mid-speech speed changes
+    utterance.onboundary = (e) => {
+      state.ttsCharIndex = fromIndex + e.charIndex;
+    };
+
     utterance.onend = () => {
       clearTimeout(safetyTimeout);
+      state.ttsCharIndex = 0;
       setMode('idle');
       resolve();
     };
@@ -321,23 +334,22 @@ ui.stopBtn.addEventListener('click', () => {
   setMode('idle');
 });
 
-// Replay button
+// Replay button — always from the beginning
 ui.replayBtn.addEventListener('click', () => {
   if (state.lastReply && state.mode !== 'processing') {
-    speakReply(state.lastReply, true);
+    speakReply(state.lastReply, { isReplay: true });
   }
 });
 
-// Speed slider — live update during playback
+// Speed slider — continue from current position with new speed
 ui.speedSlider.addEventListener('input', () => {
   const idx = parseInt(ui.speedSlider.value, 10);
   state.speechRate = SPEED_STEPS[idx];
   ui.speedLabel.textContent = state.speechRate + 'x';
 
-  // If currently speaking, restart with new speed
   if (state.mode === 'speaking' && window.speechSynthesis && state.lastReply) {
-    speechSynthesis.cancel();
-    speakReply(state.lastReply, true);
+    const resumeFrom = state.ttsCharIndex || 0;
+    speakReply(state.lastReply, { fromIndex: resumeFrom });
   }
 });
 
