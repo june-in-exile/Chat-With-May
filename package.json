@@ -1,7 +1,7 @@
 {
-  "name": "voice-chat-app",
+  "name": "chat-with-may",
   "version": "0.1.0",
-  "description": "Voice-to-voice AI chat app",
+  "description": "Chat with May — 語音對語音 AI 聊天",
   "type": "module",
   "scripts": {
     "dev": "node server/index.js",

@@ -1,7 +1,7 @@
 {
-  "name": "Voice Chat",
-  "short_name": "VoiceChat",
-  "description": "語音對語音 AI 聊天",
+  "name": "Chat with May",
+  "short_name": "May",
+  "description": "Chat with May — 語音對語音 AI 聊天",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#08080c",
