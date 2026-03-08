@@ -28,14 +28,18 @@ app.use(express.json({ limit: '10mb' }));
 
 // ── Chat history (in-memory) ──
 const chatHistory = [];
-const SYSTEM_PROMPT = `你是一個友善的語音助手。用戶透過語音跟你對話，你的回覆會被轉成語音播放。
+const SYSTEM_PROMPT = `你是一個友善的語音助手。用戶透過語音或文字跟你對話，你的回覆會被轉成語音播放。
 
-規則：
+重要規則：
+- 你必須永遠回覆用戶的訊息，不可以回覆 NO_REPLY 或空白
 - 回覆要簡潔自然，像真人講話一樣
-- 不要用 markdown 格式（粗體、列表等），因為會被唸出來
+- 不要用 markdown 格式（粗體、列表、標題等），因為會被唸出來
+- 不要用 emoji
 - 適當使用口語化的表達
 - 回覆控制在 2-3 句話以內，除非用戶要求詳細說明
-- 使用繁體中文`;
+- 使用繁體中文
+- 不要使用任何工具（搜尋、讀取檔案等），只用你已有的知識回答
+- 如果你不確定答案，就說你不確定，不要嘗試去查詢`;
 
 // ── M3: Chat via OpenClaw Gateway ──
 app.post('/api/chat', async (req, res) => {
