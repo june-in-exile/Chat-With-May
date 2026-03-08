@@ -17,6 +17,7 @@ const state = {
   transcript: '',
   silenceTimer: null,
   audioUnlocked: false,
+  sentIdx: 0,
 };
 
 // ── UI Helpers ──
@@ -127,12 +128,12 @@ function initSpeech() {
       setMode('listening');
     }
     let final = '', interim = '';
-    for (let i = 0; i < e.results.length; i++) {
+    for (let i = state.sentIdx; i < e.results.length; i++) {
       const r = e.results[i];
       if (r.isFinal) final += r[0].transcript; else interim += r[0].transcript;
     }
     state.transcript = final;
-    showText(final + interim);
+    showText(state.transcript + interim);
 
     state.silenceTimer = setTimeout(() => {
       if (state.listening && state.transcript.trim()) sendAndContinue();
@@ -158,6 +159,7 @@ function initSpeech() {
 function startListening() {
   if (!state.recognition) { showText('請使用 Chrome 瀏覽器'); return; }
   state.transcript = '';
+  state.sentIdx = 0;
   showText('');
   state.listening = true;
   try { state.recognition.start(); setMode('listening'); } catch {
@@ -180,9 +182,15 @@ function sendAndContinue() {
   const text = state.transcript.trim();
   if (!text) return;
   state.transcript = '';
+  state.sentIdx = 0;
+  // Restart recognition to clear results buffer
+  if (state.recognition) {
+    try { state.recognition.stop(); } catch {}
+    // onend handler will auto-restart since state.listening is true
+  }
   setMode('processing');
   sendToAI(text).then(() => {
-    if (state.listening) { setMode('listening'); }
+    if (state.listening) setMode('listening');
   });
 }
 
