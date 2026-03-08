@@ -557,6 +557,63 @@ authInput.addEventListener('keydown', (e) => {
 });
 biometricBtn.addEventListener('click', handleBiometricAuth);
 
+// ── Register ──
+const regName = document.getElementById('reg-name');
+const regEmail = document.getElementById('reg-email');
+const regBtn = document.getElementById('reg-btn');
+const regStatus = document.getElementById('reg-status');
+
+document.getElementById('show-register').addEventListener('click', (e) => {
+  e.preventDefault();
+  document.getElementById('auth-login').classList.add('hidden');
+  document.getElementById('auth-register').classList.remove('hidden');
+});
+
+document.getElementById('show-login').addEventListener('click', (e) => {
+  e.preventDefault();
+  document.getElementById('auth-register').classList.add('hidden');
+  document.getElementById('auth-login').classList.remove('hidden');
+});
+
+regBtn.addEventListener('click', async () => {
+  const name = regName.value.trim();
+  const email = regEmail.value.trim();
+  regStatus.textContent = '';
+  regStatus.className = '';
+
+  if (!name || !email) {
+    regStatus.textContent = '請填寫名字和 Email';
+    regStatus.className = 'error';
+    return;
+  }
+
+  regBtn.disabled = true;
+  regBtn.textContent = '送出中…';
+
+  try {
+    const res = await fetch(API_BASE + '/api/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, email }),
+    });
+    const data = await res.json();
+
+    if (data.ok) {
+      document.getElementById('auth-register').classList.add('hidden');
+      document.getElementById('auth-pending').classList.remove('hidden');
+    } else {
+      regStatus.textContent = data.error || '申請失敗';
+      regStatus.className = 'error';
+    }
+  } catch {
+    regStatus.textContent = '連線失敗';
+    regStatus.className = 'error';
+  }
+
+  regBtn.disabled = false;
+  regBtn.textContent = '送出申請';
+});
+
 // ── Init ──
 async function init() {
   // Try stored token first
