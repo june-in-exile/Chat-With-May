@@ -7,6 +7,8 @@ const API_BASE = window.__API_BASE || '';
 
 const state = {
   mode: 'idle',
+  lastReply: '',
+  speechRate: 1,
   recognition: null,
   finalTranscript: '',
   interimTranscript: '',
@@ -16,6 +18,8 @@ const state = {
   audioUnlocked: false,
 };
 
+const SPEED_STEPS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
+
 const ui = {
   orb: $('#orb'),
   micBtn: $('#mic-btn'),
@@ -24,6 +28,11 @@ const ui = {
   transcript: $('#transcript'),
   textInput: $('#text-input'),
   sendBtn: $('#send-btn'),
+  ttsControls: $('#tts-controls'),
+  stopBtn: $('#stop-btn'),
+  replayBtn: $('#replay-btn'),
+  speedSlider: $('#speed-slider'),
+  speedLabel: $('#speed-label'),
 };
 
 // ── State transitions ──
@@ -233,7 +242,6 @@ async function sendToAI(text) {
 }
 
 // ── TTS ──
-// Unlock audio context on first user interaction (required on mobile)
 function unlockAudio() {
   if (state.audioUnlocked) return;
   if (window.speechSynthesis) {
@@ -241,46 +249,47 @@ function unlockAudio() {
     u.volume = 0;
     speechSynthesis.speak(u);
     state.audioUnlocked = true;
-    console.log('Audio unlocked');
   }
 }
 
-function speakReply(text) {
+function showTtsControls() {
+  ui.ttsControls.classList.remove('hidden');
+}
+
+function speakReply(text, isReplay = false) {
+  state.lastReply = text;
+  showTtsControls();
+
   return new Promise((resolve) => {
     if (!window.speechSynthesis) {
-      console.log('No speechSynthesis');
       setMode('idle');
       resolve();
       return;
     }
 
+    // Cancel any ongoing speech
+    speechSynthesis.cancel();
     setMode('speaking');
 
-    // Safety timeout — if TTS hangs, force idle after 15s
     const safetyTimeout = setTimeout(() => {
       console.warn('TTS safety timeout');
       speechSynthesis.cancel();
       setMode('idle');
       resolve();
-    }, 15000);
+    }, 30000);
 
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = 'zh-TW';
-    utterance.rate = 1.05;
+    utterance.rate = state.speechRate;
 
-    // Pick a Chinese voice
     const voices = speechSynthesis.getVoices();
     const zhVoice = voices.find(v => v.lang.includes('zh') && v.localService)
       || voices.find(v => v.lang.startsWith('zh-TW'))
       || voices.find(v => v.lang.startsWith('zh'));
-    if (zhVoice) {
-      utterance.voice = zhVoice;
-      console.log('Using voice:', zhVoice.name);
-    }
+    if (zhVoice) utterance.voice = zhVoice;
 
     utterance.onend = () => {
       clearTimeout(safetyTimeout);
-      console.log('TTS finished');
       setMode('idle');
       resolve();
     };
@@ -296,13 +305,33 @@ function speakReply(text) {
   });
 }
 
+// Stop button
+ui.stopBtn.addEventListener('click', () => {
+  if (window.speechSynthesis) speechSynthesis.cancel();
+  setMode('idle');
+});
+
+// Replay button
+ui.replayBtn.addEventListener('click', () => {
+  if (state.lastReply && state.mode !== 'processing') {
+    speakReply(state.lastReply, true);
+  }
+});
+
+// Speed slider
+ui.speedSlider.addEventListener('input', () => {
+  const idx = parseInt(ui.speedSlider.value, 10);
+  state.speechRate = SPEED_STEPS[idx];
+  ui.speedLabel.textContent = state.speechRate + 'x';
+});
+
+// Init slider display
+ui.speedLabel.textContent = SPEED_STEPS[parseInt(ui.speedSlider.value, 10)] + 'x';
+
 // Preload voices
 if (window.speechSynthesis) {
   speechSynthesis.getVoices();
-  speechSynthesis.onvoiceschanged = () => {
-    const voices = speechSynthesis.getVoices();
-    console.log('Voices loaded:', voices.length);
-  };
+  speechSynthesis.onvoiceschanged = () => speechSynthesis.getVoices();
 }
 
 // ── Text input ──

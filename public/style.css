@@ -271,6 +271,111 @@ body::after {
 #transcript::-webkit-scrollbar { width: 2px; }
 #transcript::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
+/* ── TTS Controls ── */
+#tts-controls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  max-width: 300px;
+  transition: opacity 0.3s, transform 0.3s;
+}
+
+#tts-controls.hidden {
+  display: none;
+}
+
+#tts-buttons {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+#stop-btn, #replay-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-dim);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+#stop-btn:active, #replay-btn:active {
+  transform: scale(0.9);
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+#stop-btn:active {
+  border-color: var(--listening);
+  color: var(--listening);
+}
+
+#replay-btn:active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+#speed-control {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+#speed-label {
+  font-family: 'Space Mono', monospace;
+  font-size: 11px;
+  color: var(--text-mid);
+  letter-spacing: 0.5px;
+  min-width: 36px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+#speed-slider {
+  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 3px;
+  background: var(--border);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+
+#speed-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--bg);
+  box-shadow: 0 0 8px var(--accent-glow);
+  cursor: pointer;
+  transition: transform 0.15s;
+}
+
+#speed-slider::-webkit-slider-thumb:active {
+  transform: scale(1.2);
+}
+
+#speed-slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--bg);
+  box-shadow: 0 0 8px var(--accent-glow);
+  cursor: pointer;
+}
+
 /* ── Controls ── */
 #controls {
   padding: 16px 20px;

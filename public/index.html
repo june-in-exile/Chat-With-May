@@ -28,6 +28,25 @@
         </div>
       </div>
       <p id="transcript"></p>
+
+      <!-- TTS controls (hidden until there's a reply) -->
+      <div id="tts-controls" class="hidden">
+        <div id="tts-buttons">
+          <button id="stop-btn" aria-label="停止語音" title="停止">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+          </button>
+          <button id="replay-btn" aria-label="重播" title="重播">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="1 4 1 10 7 10"/>
+              <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
+            </svg>
+          </button>
+        </div>
+        <div id="speed-control">
+          <span id="speed-label">1x</span>
+          <input id="speed-slider" type="range" min="0" max="6" step="1" value="2" />
+        </div>
+      </div>
     </div>
 
     <div id="controls">
