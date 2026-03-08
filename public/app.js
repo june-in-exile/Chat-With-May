@@ -72,9 +72,6 @@ async function doLogin() {
   if (await apiAuth(token)) {
     state.authToken = token;
     localStorage.setItem('vc_token', token);
-    if (isWebAuthn() && !localStorage.getItem('vc_cred')) {
-      if (confirm('要啟用指紋 / Face ID 快速登入嗎？')) await registerBiometric();
-    }
     enterApp();
   } else {
     $('auth-error').textContent = '通行碼錯誤';
@@ -83,59 +80,6 @@ async function doLogin() {
   }
   $('auth-btn').disabled = false;
 }
-
-// Biometric (WebAuthn)
-const isWebAuthn = () => typeof window.PublicKeyCredential === 'function';
-const b64Encode = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
-const b64Decode = (s) => Uint8Array.from(atob(s), c => c.charCodeAt(0)).buffer;
-
-async function registerBiometric() {
-  try {
-    const cred = await navigator.credentials.create({
-      publicKey: {
-        challenge: crypto.getRandomValues(new Uint8Array(32)),
-        rp: { name: 'Chat with May', id: location.hostname },
-        user: { id: crypto.getRandomValues(new Uint8Array(16)), name: 'user', displayName: 'User' },
-        pubKeyCredParams: [{ alg: -7, type: 'public-key' }, { alg: -257, type: 'public-key' }],
-        authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required' },
-        timeout: 60000,
-      },
-    });
-    if (cred) localStorage.setItem('vc_cred', JSON.stringify({ id: cred.id, rawId: b64Encode(cred.rawId) }));
-  } catch {}
-}
-
-async function authBiometric() {
-  const stored = localStorage.getItem('vc_cred');
-  if (!stored || !isWebAuthn()) return false;
-  try {
-    const { rawId } = JSON.parse(stored);
-    const assertion = await navigator.credentials.get({
-      publicKey: {
-        challenge: crypto.getRandomValues(new Uint8Array(32)),
-        rpId: location.hostname,
-        allowCredentials: [{ id: b64Decode(rawId), type: 'public-key', transports: ['internal'] }],
-        userVerification: 'required',
-        timeout: 60000,
-      },
-    });
-    if (assertion) { state.authToken = localStorage.getItem('vc_token') || ''; return !!state.authToken; }
-  } catch {}
-  return false;
-}
-
-$('biometric-btn').addEventListener('click', async () => {
-  $('auth-error').textContent = '';
-  $('biometric-btn').disabled = true;
-  if (await authBiometric() && await apiAuth(state.authToken)) {
-    enterApp();
-  } else {
-    $('auth-error').textContent = '驗證失敗，請用通行碼登入';
-    localStorage.removeItem('vc_cred');
-    $('biometric-btn').classList.add('hidden');
-  }
-  $('biometric-btn').disabled = false;
-});
 
 // View switching (login ↔ register)
 $('show-register').addEventListener('click', (e) => { e.preventDefault(); $('auth-login').classList.add('hidden'); $('auth-register').classList.remove('hidden'); });
@@ -327,7 +271,6 @@ function sendText() {
     localStorage.removeItem('vc_token');
     state.authToken = '';
     $('auth-screen').classList.remove('hidden');
-    if (localStorage.getItem('vc_cred') && isWebAuthn()) $('biometric-btn').classList.remove('hidden');
     $('auth-input').focus();
   }
 })();
