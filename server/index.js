@@ -37,9 +37,8 @@ app.post('/api/register', async (req, res) => {
   if (!result.ok) return res.status(400).json({ error: result.error });
 
   if (!result.existing) {
-    const host = req.headers['x-forwarded-host'] || `localhost:${config.port}`;
-    const proto = req.headers['x-forwarded-host'] ? 'https' : 'http';
-    const url = `${proto}://${host}/api/admin/approve?email=${encodeURIComponent(email)}&secret=${result.approveToken}`;
+    const base = config.publicUrl || `http://localhost:${config.port}`;
+    const url = `${base}/api/admin/approve?email=${encodeURIComponent(email)}&secret=${result.approveToken}`;
     console.log(`[register] New user: ${name} <${email}>`);
     try {
       await notifyAdmin(name, email, url);

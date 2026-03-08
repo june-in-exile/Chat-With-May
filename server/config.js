@@ -8,6 +8,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export default {
   port: process.env.PORT || 3000,
+  publicUrl: process.env.PUBLIC_URL || '',
   publicDir: join(__dirname, '..', 'public'),
   dataDir: join(__dirname, '..', 'data'),
 
