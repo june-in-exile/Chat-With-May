@@ -227,8 +227,22 @@ if (window.speechSynthesis) { speechSynthesis.getVoices(); speechSynthesis.onvoi
 
 // ── Chat ──
 
+const ACK_PHRASES = ['收到', '我知道了', '好的', '明白', '我查一下', '稍等', '讓我想想'];
+function randomAck() { return ACK_PHRASES[Math.floor(Math.random() * ACK_PHRASES.length)]; }
+
+function speakAck() {
+  if (!window.speechSynthesis) return;
+  const utt = new SpeechSynthesisUtterance(randomAck());
+  utt.lang = 'zh-TW';
+  utt.rate = state.speechRate;
+  const voice = getChineseVoice();
+  if (voice) utt.voice = voice;
+  speechSynthesis.speak(utt);
+}
+
 async function sendToAI(text) {
   $('transcript').innerHTML = `<span style="color:var(--text-dim);font-size:13px">你說：</span> ${text}<br><span class="processing-hint">處理中，請稍候…</span>`;
+  speakAck();
 
   try {
     const ctrl = new AbortController();
