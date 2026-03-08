@@ -284,7 +284,8 @@ function stopTTS() {
 }
 
 async function sendToAI(text) {
-  stopTTS(); // interrupt any playing response
+  stopTTS();
+  if (chatAbort) { chatAbort.abort(); chatAbort = null; } // cancel previous request
   $('transcript').innerHTML = `<span style="color:var(--text-dim);font-size:13px">你說：</span> ${text}<br><span class="processing-hint">處理中，請稍候…</span>`;
   speakAck();
 
