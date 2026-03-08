@@ -328,11 +328,17 @@ ui.replayBtn.addEventListener('click', () => {
   }
 });
 
-// Speed slider
+// Speed slider — live update during playback
 ui.speedSlider.addEventListener('input', () => {
   const idx = parseInt(ui.speedSlider.value, 10);
   state.speechRate = SPEED_STEPS[idx];
   ui.speedLabel.textContent = state.speechRate + 'x';
+
+  // If currently speaking, restart with new speed
+  if (state.mode === 'speaking' && window.speechSynthesis && state.lastReply) {
+    speechSynthesis.cancel();
+    speakReply(state.lastReply, true);
+  }
 });
 
 // Init slider display
