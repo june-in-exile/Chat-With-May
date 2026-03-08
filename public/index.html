@@ -12,7 +12,21 @@
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <div id="app">
+  <!-- Auth screen -->
+  <div id="auth-screen">
+    <div id="auth-box">
+      <div class="auth-orb"></div>
+      <h1>Voice Chat</h1>
+      <p>請輸入通行碼</p>
+      <div id="auth-input-row">
+        <input id="auth-input" type="password" placeholder="通行碼" autocomplete="off" />
+        <button id="auth-btn">→</button>
+      </div>
+      <p id="auth-error"></p>
+    </div>
+  </div>
+
+  <div id="app" class="hidden">
     <div id="status-bar">
       <div id="status-indicator"></div>
       <span id="status-text">INITIALIZING</span>

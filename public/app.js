@@ -224,7 +224,7 @@ async function sendToAI(text) {
 
     const res = await fetch(API_BASE + '/api/chat', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'x-auth-token': authToken },
       body: JSON.stringify({ message: text }),
       signal: controller.signal,
     });
@@ -379,17 +379,68 @@ ui.textInput.addEventListener('keydown', (e) => {
   }
 });
 
+// ── Auth ──
+const authScreen = document.getElementById('auth-screen');
+const authInput = document.getElementById('auth-input');
+const authBtn = document.getElementById('auth-btn');
+const authError = document.getElementById('auth-error');
+
+let authToken = localStorage.getItem('vc_token') || '';
+
+async function verifyAuth(token) {
+  try {
+    const res = await fetch(API_BASE + '/api/auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token }),
+    });
+    const data = await res.json();
+    return data.ok === true;
+  } catch {
+    return false;
+  }
+}
+
+function showApp() {
+  authScreen.classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+  detectSpeechSupport();
+  setMode('idle');
+}
+
+async function handleAuth() {
+  const token = authInput.value.trim();
+  if (!token) return;
+  authBtn.disabled = true;
+  authError.textContent = '';
+
+  if (await verifyAuth(token)) {
+    authToken = token;
+    localStorage.setItem('vc_token', token);
+    showApp();
+  } else {
+    authError.textContent = '通行碼錯誤';
+    authInput.value = '';
+    authInput.focus();
+  }
+  authBtn.disabled = false;
+}
+
+authBtn.addEventListener('click', handleAuth);
+authInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') handleAuth();
+});
+
 // ── Init ──
 async function init() {
-  detectSpeechSupport();
-  try {
-    const res = await fetch(API_BASE + '/api/health');
-    const data = await res.json();
-    if (data.status === 'ok') {
-      setMode('idle');
-    }
-  } catch {
-    showError('連線失敗，請重新整理');
+  // Try stored token first
+  if (authToken && await verifyAuth(authToken)) {
+    showApp();
+  } else {
+    localStorage.removeItem('vc_token');
+    authToken = '';
+    authScreen.classList.remove('hidden');
+    authInput.focus();
   }
 }
 

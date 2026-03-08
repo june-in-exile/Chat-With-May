@@ -23,8 +23,26 @@ app.use((req, res, next) => {
   next();
 });
 
+// Auth token — change this to your own passphrase
+const AUTH_TOKEN = process.env.AUTH_TOKEN || 'june2026';
+
 app.use(express.static(join(__dirname, '..', 'public')));
 app.use(express.json({ limit: '10mb' }));
+
+// Auth verify endpoint
+app.post('/api/auth', (req, res) => {
+  const { token } = req.body;
+  res.json({ ok: token === AUTH_TOKEN });
+});
+
+// Auth middleware for protected routes
+function requireAuth(req, res, next) {
+  const token = req.headers['x-auth-token'];
+  if (token !== AUTH_TOKEN) {
+    return res.status(401).json({ error: '未授權' });
+  }
+  next();
+}
 
 // ── Chat history (in-memory) ──
 const chatHistory = [];
@@ -42,7 +60,7 @@ const SYSTEM_PROMPT = `你是一個友善的語音助手。用戶透過語音或
 - 搜尋完就直接回答，不要再做額外查證`;
 
 // ── M3: Chat via OpenClaw Gateway ──
-app.post('/api/chat', async (req, res) => {
+app.post('/api/chat', requireAuth, async (req, res) => {
   const { message } = req.body;
   if (!message) return res.status(400).json({ error: '沒有訊息' });
 
