@@ -168,6 +168,7 @@ onTap($('mic-btn'), () => {
   if (state.mode === 'idle') startListening();
   else if (state.mode === 'listening') stopListening();
   else if (state.mode === 'speaking') { speechSynthesis.cancel(); setMode('idle'); }
+  else if (state.mode === 'processing') { setMode('idle'); } // allow cancel
 });
 
 // ── TTS ──
