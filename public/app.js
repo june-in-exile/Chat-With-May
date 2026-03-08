@@ -240,6 +240,7 @@ async function sendToAI(text) {
     });
     clearTimeout(timer);
 
+    if (res.status === 401) { localStorage.removeItem('vc_token'); location.reload(); return; }
     if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || `HTTP ${res.status}`); }
     const { reply } = await res.json();
     showText(reply);
