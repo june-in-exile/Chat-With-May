@@ -125,7 +125,7 @@ function initSpeech() {
     showText(final + interim);
 
     state.silenceTimer = setTimeout(() => {
-      if (state.mode === 'listening' && state.transcript.trim()) stopListening();
+      if (state.listening && state.transcript.trim()) sendAndContinue();
     }, 2000);
   };
 
@@ -135,12 +135,12 @@ function initSpeech() {
     if (e.error === 'network') {
       if (++networkErrors >= 3) { showText('語音辨識無法連線，請用輸入框打字'); setMode('idle'); networkErrors = 0; return; }
       showText('重新連線中…');
-      setTimeout(() => { if (state.mode === 'listening') try { rec.start(); } catch {} }, 1500);
+      setTimeout(() => { if (state.listening) try { rec.start(); } catch {} }, 1500);
       return;
     }
   };
 
-  rec.onend = () => { if (state.mode === 'listening') try { rec.start(); } catch {} };
+  rec.onend = () => { if (state.listening) try { rec.start(); } catch {} };
 
   state.recognition = rec;
 }
@@ -149,6 +149,7 @@ function startListening() {
   if (!state.recognition) { showText('請使用 Chrome 瀏覽器'); return; }
   state.transcript = '';
   showText('');
+  state.listening = true;
   try { state.recognition.start(); setMode('listening'); } catch {
     state.recognition.stop();
     setTimeout(() => { try { state.recognition.start(); setMode('listening'); } catch {} }, 200);
@@ -158,17 +159,35 @@ function startListening() {
 function stopListening() {
   clearTimeout(state.silenceTimer);
   state.recognition?.stop();
+  state.listening = false;
   const text = state.transcript.trim();
   if (text) { setMode('processing'); sendToAI(text); } else setMode('idle');
+}
+
+// Auto-send on silence, but keep listening
+function sendAndContinue() {
+  clearTimeout(state.silenceTimer);
+  const text = state.transcript.trim();
+  if (!text) return;
+  state.transcript = '';
+  setMode('processing');
+  sendToAI(text).then(() => {
+    if (state.listening) { setMode('listening'); }
+  });
 }
 
 // Mic button
 onTap($('mic-btn'), () => {
   unlockAudio();
-  if (state.mode === 'idle') startListening();
-  else if (state.mode === 'listening') stopListening();
-  else if (state.mode === 'speaking') { speechSynthesis.cancel(); setMode('idle'); }
-  else if (state.mode === 'processing') { setMode('idle'); } // allow cancel
+  if (state.listening) {
+    // User explicitly stops — end everything
+    stopListening();
+  } else if (state.mode === 'idle') {
+    startListening();
+  } else if (state.mode === 'speaking') {
+    speechSynthesis.cancel();
+    setMode('idle');
+  }
 });
 
 // ── TTS ──
