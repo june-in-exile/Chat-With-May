@@ -1,0 +1,14 @@
+{
+  "name": "voice-chat-app",
+  "version": "0.1.0",
+  "description": "Voice-to-voice AI chat app",
+  "type": "module",
+  "scripts": {
+    "dev": "node server/index.js",
+    "start": "node server/index.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "dotenv": "^16.4.0"
+  }
+}

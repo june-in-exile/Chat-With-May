@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#0a0a0a">
+  <title>Voice Chat</title>
+  <link rel="manifest" href="/manifest.json">
+  <link rel="apple-touch-icon" href="/icon-192.png">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Status bar -->
+    <div id="status-bar">
+      <div id="status-indicator"></div>
+      <span id="status-text">準備中…</span>
+    </div>
+
+    <!-- Main visual area -->
+    <div id="visual-area">
+      <div id="orb-container">
+        <div id="orb" class="idle">
+          <div class="orb-ring ring-1"></div>
+          <div class="orb-ring ring-2"></div>
+          <div class="orb-ring ring-3"></div>
+          <div class="orb-core"></div>
+        </div>
+      </div>
+      <p id="transcript"></p>
+    </div>
+
+    <!-- Controls -->
+    <div id="controls">
+      <button id="mic-btn" aria-label="開始對話">
+        <svg id="mic-icon" viewBox="0 0 24 24" width="32" height="32">
+          <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" fill="currentColor"/>
+          <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" fill="currentColor"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
