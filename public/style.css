@@ -674,17 +674,10 @@ body::after {
   transform: scale(0.93);
 }
 
-#mic-row {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  width: 100%;
-  justify-content: center;
-}
-
 #mic-btn {
-  width: 56px;
-  height: 56px;
+  width: 46px;
+  height: 46px;
+  min-width: 46px;
   border-radius: 50%;
   border: 1.5px solid var(--border);
   background: var(--surface);
@@ -732,14 +725,6 @@ body::after {
 
 #mic-icon { position: relative; z-index: 1; }
 
-#hint-text {
-  font-family: 'Space Mono', monospace;
-  font-size: 10px;
-  color: var(--text-dim);
-  letter-spacing: 1px;
-  opacity: 0.6;
-}
-
 /* ── Animations ── */
 @keyframes status-pulse {
   0%, 100% { opacity: 1; }
@@ -772,7 +757,7 @@ body::after {
   #orb-container { width: 120px; height: 120px; }
   #transcript { max-height: 18vh; font-size: 13px; }
   #controls { gap: 10px; padding-top: 10px; }
-  #mic-btn { width: 48px; height: 48px; }
+  #mic-btn { width: 40px; height: 40px; min-width: 40px; }
   #status-bar { padding: 8px 16px; padding-top: calc(var(--safe-top) + 8px); }
 }
 
