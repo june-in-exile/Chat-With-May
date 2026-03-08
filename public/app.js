@@ -1,642 +1,333 @@
-// Voice Chat App — Main Client
+// Chat with May — Client
+// Sections: Config → State → UI → Auth → Speech → TTS → Chat → Init
 
-const $ = (sel) => document.querySelector(sel);
+const $ = (id) => document.getElementById(id) || document.querySelector(id);
+const API = window.__API_BASE || '';
+const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 
-// API base URL — empty = same origin, or set to tunnel URL for Vercel deployment
-const API_BASE = window.__API_BASE || '';
+// ── State ──
 
 const state = {
-  mode: 'idle',
+  mode: 'idle',        // idle | listening | processing | speaking
+  authToken: localStorage.getItem('vc_token') || '',
   lastReply: '',
   speechRate: 1,
-  ttsCharIndex: 0, // track current position in text
+  ttsCharIndex: 0,
   recognition: null,
-  finalTranscript: '',
-  interimTranscript: '',
+  transcript: '',
   silenceTimer: null,
-  SILENCE_TIMEOUT: 2000,
-  useWebSpeech: false,
   audioUnlocked: false,
 };
 
-const SPEED_STEPS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
+// ── UI Helpers ──
 
-const ui = {
-  orb: $('#orb'),
-  micBtn: $('#mic-btn'),
-  statusIndicator: $('#status-indicator'),
-  statusText: $('#status-text'),
-  transcript: $('#transcript'),
-  textInput: $('#text-input'),
-  sendBtn: $('#send-btn'),
-  ttsControls: $('#tts-controls'),
-  stopBtn: $('#stop-btn'),
-  replayBtn: $('#replay-btn'),
-  speedSlider: $('#speed-slider'),
-  speedLabel: $('#speed-label'),
-};
-
-// ── State transitions ──
 function setMode(mode) {
-  console.log('setMode:', state.mode, '->', mode);
   state.mode = mode;
-  ui.orb.className = mode;
-  ui.statusIndicator.className = mode === 'idle' ? 'ready' : mode;
+  $('orb').className = mode;
+  $('status-indicator').className = mode === 'idle' ? 'ready' : mode;
+  $('status-text').textContent = { idle: '按下麥克風開始說話', listening: '🔴 聆聽中… 再按一次停止', processing: '思考中…', speaking: '回覆中…' }[mode] || '';
+  $('mic-btn').classList.toggle('active', mode === 'listening');
 
-  const labels = {
-    idle: '按下麥克風開始說話',
-    listening: '🔴 聆聽中… 再按一次停止',
-    processing: '思考中…',
-    speaking: '回覆中…',
-  };
-  ui.statusText.textContent = labels[mode] || '';
-  ui.micBtn.classList.toggle('active', mode === 'listening');
-
-  // Disable inputs during processing/speaking
   const busy = mode === 'processing' || mode === 'speaking';
-  ui.textInput.disabled = busy;
-  ui.sendBtn.disabled = busy;
-  if (busy) {
-    ui.textInput.placeholder = mode === 'processing' ? '處理中…' : '回覆中…';
+  $('text-input').disabled = busy;
+  $('send-btn').disabled = busy;
+  $('text-input').placeholder = busy ? (mode === 'processing' ? '處理中…' : '回覆中…') : '輸入訊息…';
+}
+
+function showText(text) { $('transcript').textContent = text; }
+
+// Prevent ghost double-tap on mobile
+function onTap(el, handler) {
+  let lastTap = 0;
+  el.addEventListener('touchend', (e) => { e.preventDefault(); lastTap = Date.now(); handler(); });
+  el.addEventListener('click', () => { if (Date.now() - lastTap > 500) handler(); });
+}
+
+// ── Auth ──
+
+async function apiAuth(token) {
+  try {
+    const res = await fetch(`${API}/api/auth`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }) });
+    return (await res.json()).ok === true;
+  } catch { return false; }
+}
+
+function enterApp() {
+  $('auth-screen').classList.add('hidden');
+  $('app').classList.remove('hidden');
+  initSpeech();
+  setMode('idle');
+}
+
+// Password login
+$('auth-btn').addEventListener('click', doLogin);
+$('auth-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') doLogin(); });
+
+async function doLogin() {
+  const token = $('auth-input').value.trim();
+  if (!token) return;
+  $('auth-btn').disabled = true;
+  $('auth-error').textContent = '';
+
+  if (await apiAuth(token)) {
+    state.authToken = token;
+    localStorage.setItem('vc_token', token);
+    if (isWebAuthn() && !localStorage.getItem('vc_cred')) {
+      if (confirm('要啟用指紋 / Face ID 快速登入嗎？')) await registerBiometric();
+    }
+    enterApp();
   } else {
-    ui.textInput.placeholder = '輸入訊息…';
+    $('auth-error').textContent = '通行碼錯誤';
+    $('auth-input').value = '';
+    $('auth-input').focus();
   }
+  $('auth-btn').disabled = false;
 }
 
-function showError(msg) {
-  ui.transcript.textContent = msg;
+// Biometric (WebAuthn)
+const isWebAuthn = () => typeof window.PublicKeyCredential === 'function';
+const b64Encode = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
+const b64Decode = (s) => Uint8Array.from(atob(s), c => c.charCodeAt(0)).buffer;
+
+async function registerBiometric() {
+  try {
+    const cred = await navigator.credentials.create({
+      publicKey: {
+        challenge: crypto.getRandomValues(new Uint8Array(32)),
+        rp: { name: 'Chat with May', id: location.hostname },
+        user: { id: crypto.getRandomValues(new Uint8Array(16)), name: 'user', displayName: 'User' },
+        pubKeyCredParams: [{ alg: -7, type: 'public-key' }, { alg: -257, type: 'public-key' }],
+        authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required' },
+        timeout: 60000,
+      },
+    });
+    if (cred) localStorage.setItem('vc_cred', JSON.stringify({ id: cred.id, rawId: b64Encode(cred.rawId) }));
+  } catch {}
 }
 
-// ── Detect speech support ──
-function detectSpeechSupport() {
+async function authBiometric() {
+  const stored = localStorage.getItem('vc_cred');
+  if (!stored || !isWebAuthn()) return false;
+  try {
+    const { rawId } = JSON.parse(stored);
+    const assertion = await navigator.credentials.get({
+      publicKey: {
+        challenge: crypto.getRandomValues(new Uint8Array(32)),
+        rpId: location.hostname,
+        allowCredentials: [{ id: b64Decode(rawId), type: 'public-key', transports: ['internal'] }],
+        userVerification: 'required',
+        timeout: 60000,
+      },
+    });
+    if (assertion) { state.authToken = localStorage.getItem('vc_token') || ''; return !!state.authToken; }
+  } catch {}
+  return false;
+}
+
+$('biometric-btn').addEventListener('click', async () => {
+  $('auth-error').textContent = '';
+  $('biometric-btn').disabled = true;
+  if (await authBiometric() && await apiAuth(state.authToken)) {
+    enterApp();
+  } else {
+    $('auth-error').textContent = '驗證失敗，請用通行碼登入';
+    localStorage.removeItem('vc_cred');
+    $('biometric-btn').classList.add('hidden');
+  }
+  $('biometric-btn').disabled = false;
+});
+
+// View switching (login ↔ register)
+$('show-register').addEventListener('click', (e) => { e.preventDefault(); $('auth-login').classList.add('hidden'); $('auth-register').classList.remove('hidden'); });
+$('show-login').addEventListener('click', (e) => { e.preventDefault(); $('auth-register').classList.add('hidden'); $('auth-login').classList.remove('hidden'); });
+
+// Registration
+$('reg-btn').addEventListener('click', async () => {
+  const name = $('reg-name').value.trim(), email = $('reg-email').value.trim();
+  $('reg-status').textContent = '';
+  if (!name || !email) { $('reg-status').textContent = '請填寫名字和 Email'; $('reg-status').className = 'error'; return; }
+
+  $('reg-btn').disabled = true;
+  try {
+    const res = await fetch(`${API}/api/register`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, email }) });
+    const data = await res.json();
+    if (data.ok) { $('auth-register').classList.add('hidden'); $('auth-pending').classList.remove('hidden'); }
+    else { $('reg-status').textContent = data.error; $('reg-status').className = 'error'; }
+  } catch { $('reg-status').textContent = '連線失敗'; $('reg-status').className = 'error'; }
+  $('reg-btn').disabled = false;
+});
+
+// ── Speech Recognition ──
+
+function initSpeech() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  state.useWebSpeech = !!SR;
-  console.log('Web Speech API:', state.useWebSpeech ? 'yes' : 'no');
-}
-
-// ── Web Speech API ──
-function initRecognition() {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) return null;
+  if (!SR) return;
 
   const rec = new SR();
   rec.lang = 'zh-TW';
   rec.continuous = true;
   rec.interimResults = true;
 
-  rec.onresult = (event) => {
-    clearTimeout(state.silenceTimer);
-    let interim = '';
-    for (let i = event.resultIndex; i < event.results.length; i++) {
-      if (event.results[i].isFinal) {
-        state.finalTranscript += event.results[i][0].transcript;
-      } else {
-        interim += event.results[i][0].transcript;
-      }
-    }
-    state.interimTranscript = interim;
-    ui.transcript.textContent = state.finalTranscript + interim;
+  let networkErrors = 0;
 
-    // Auto-stop after silence
+  rec.onresult = (e) => {
+    clearTimeout(state.silenceTimer);
+    let final = '', interim = '';
+    for (let i = 0; i < e.results.length; i++) {
+      const r = e.results[i];
+      if (r.isFinal) final += r[0].transcript; else interim += r[0].transcript;
+    }
+    state.transcript = final;
+    showText(final + interim);
+
     state.silenceTimer = setTimeout(() => {
-      if (state.mode === 'listening' && state.finalTranscript.trim()) {
-        stopListening();
-      }
-    }, state.SILENCE_TIMEOUT);
+      if (state.mode === 'listening' && state.transcript.trim()) stopListening();
+    }, 2000);
   };
 
-  rec.onerror = (event) => {
-    console.error('Speech error:', event.error);
-    if (event.error === 'not-allowed') {
-      showError('請允許麥克風權限');
-      setMode('idle');
-    } else if (event.error === 'no-speech' || event.error === 'aborted') {
-      return; // ignore, will auto-restart via onend
-    } else if (event.error === 'network') {
-      console.log('Network error');
-      state.networkErrors = (state.networkErrors || 0) + 1;
-      if (state.networkErrors >= 3) {
-        showError('語音辨識無法連線，請用下方輸入框打字');
-        setMode('idle');
-        state.networkErrors = 0;
-        return;
-      }
-      ui.transcript.textContent = '重新連線中…';
-      setTimeout(() => {
-        if (state.mode === 'listening') {
-          try { rec.start(); } catch (e) { console.log('retry failed:', e); }
-        }
-      }, 1500);
+  rec.onerror = (e) => {
+    if (e.error === 'not-allowed') { showText('請允許麥克風權限'); setMode('idle'); return; }
+    if (e.error === 'no-speech' || e.error === 'aborted') return;
+    if (e.error === 'network') {
+      if (++networkErrors >= 3) { showText('語音辨識無法連線，請用輸入框打字'); setMode('idle'); networkErrors = 0; return; }
+      showText('重新連線中…');
+      setTimeout(() => { if (state.mode === 'listening') try { rec.start(); } catch {} }, 1500);
       return;
     }
-    // Other errors — don't reset if still listening
-    if (state.mode !== 'listening') setMode('idle');
   };
 
-  rec.onend = () => {
-    console.log('recognition onend, mode:', state.mode);
-    if (state.mode === 'listening') {
-      try { rec.start(); } catch (e) { console.log('restart failed:', e); }
-    }
-  };
+  rec.onend = () => { if (state.mode === 'listening') try { rec.start(); } catch {} };
 
-  return rec;
+  state.recognition = rec;
 }
-
-// ── Mic button ──
-function handleMicAction() {
-  // Unlock audio on first interaction
-  unlockAudio();
-
-  if (state.mode === 'idle') {
-    startListening();
-  } else if (state.mode === 'listening') {
-    stopListening();
-  } else if (state.mode === 'speaking') {
-    // Allow interrupting TTS
-    speechSynthesis.cancel();
-    setMode('idle');
-  }
-}
-
-// Prevent both click and touchend from firing
-let lastTapTime = 0;
-ui.micBtn.addEventListener('touchend', (e) => {
-  e.preventDefault();
-  lastTapTime = Date.now();
-  handleMicAction();
-});
-
-ui.micBtn.addEventListener('click', (e) => {
-  if (Date.now() - lastTapTime < 500) return; // skip if touch just fired
-  handleMicAction();
-});
 
 function startListening() {
-  state.finalTranscript = '';
-  state.interimTranscript = '';
-  ui.transcript.textContent = '';
-
-  if (state.useWebSpeech) {
-    if (!state.recognition) state.recognition = initRecognition();
-    if (!state.recognition) { showError('語音辨識不可用'); return; }
-
-    try {
-      state.recognition.start();
-      setMode('listening');
-    } catch (err) {
-      // Might be already started
-      state.recognition.stop();
-      setTimeout(() => {
-        try {
-          state.recognition.start();
-          setMode('listening');
-        } catch (e) {
-          showError('無法啟動語音辨識');
-        }
-      }, 200);
-    }
-  } else {
-    showError('請使用 Chrome 瀏覽器');
+  if (!state.recognition) { showText('請使用 Chrome 瀏覽器'); return; }
+  state.transcript = '';
+  showText('');
+  try { state.recognition.start(); setMode('listening'); } catch {
+    state.recognition.stop();
+    setTimeout(() => { try { state.recognition.start(); setMode('listening'); } catch {} }, 200);
   }
 }
 
 function stopListening() {
   clearTimeout(state.silenceTimer);
-  if (state.recognition) state.recognition.stop();
-
-  const text = state.finalTranscript.trim();
-  if (text) {
-    setMode('processing');
-    sendToAI(text);
-  } else {
-    setMode('idle');
-  }
+  state.recognition?.stop();
+  const text = state.transcript.trim();
+  if (text) { setMode('processing'); sendToAI(text); } else setMode('idle');
 }
 
-// ── AI Chat ──
-async function sendToAI(text) {
-  ui.transcript.innerHTML = '<span style="color:var(--text-dim);font-size:13px">你說：</span> ' + text + '<br><span class="processing-hint">處理中，請稍候…</span>';
-
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 60000);
-
-    const res = await fetch(API_BASE + '/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-auth-token': authToken },
-      body: JSON.stringify({ message: text }),
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || `HTTP ${res.status}`);
-    }
-
-    const data = await res.json();
-    ui.transcript.textContent = data.reply;
-
-    // Try TTS, but always return to idle
-    await speakReply(data.reply);
-
-  } catch (err) {
-    console.error('AI error:', err);
-    if (err.name === 'AbortError') {
-      showError('回覆超時，請重試');
-    } else {
-      showError('錯誤：' + err.message);
-    }
-    setMode('idle');
-  }
-}
+// Mic button
+onTap($('mic-btn'), () => {
+  unlockAudio();
+  if (state.mode === 'idle') startListening();
+  else if (state.mode === 'listening') stopListening();
+  else if (state.mode === 'speaking') { speechSynthesis.cancel(); setMode('idle'); }
+});
 
 // ── TTS ──
+
 function unlockAudio() {
-  if (state.audioUnlocked) return;
-  if (window.speechSynthesis) {
-    const u = new SpeechSynthesisUtterance('');
-    u.volume = 0;
-    speechSynthesis.speak(u);
-    state.audioUnlocked = true;
-  }
+  if (state.audioUnlocked || !window.speechSynthesis) return;
+  const u = new SpeechSynthesisUtterance(''); u.volume = 0;
+  speechSynthesis.speak(u);
+  state.audioUnlocked = true;
 }
 
-function showTtsControls() {
-  ui.ttsControls.classList.remove('hidden');
+function getChineseVoice() {
+  const voices = speechSynthesis.getVoices();
+  return voices.find(v => v.lang.includes('zh') && v.localService)
+    || voices.find(v => v.lang.startsWith('zh-TW'))
+    || voices.find(v => v.lang.startsWith('zh'));
 }
 
-function speakReply(text, { fromIndex = 0, isReplay = false } = {}) {
+function speak(text, fromIndex = 0) {
   state.lastReply = text;
-  showTtsControls();
+  $('tts-controls').classList.remove('hidden');
+  if (fromIndex === 0) state.ttsCharIndex = 0;
 
-  // Reset char index for fresh plays
-  if (isReplay || fromIndex === 0) {
-    state.ttsCharIndex = 0;
-  }
+  const slice = text.slice(fromIndex);
+  if (!slice || !window.speechSynthesis) { setMode('idle'); return; }
 
-  const textToSpeak = text.slice(fromIndex);
-  if (!textToSpeak) { setMode('idle'); return Promise.resolve(); }
+  speechSynthesis.cancel();
+  setMode('speaking');
 
-  return new Promise((resolve) => {
-    if (!window.speechSynthesis) {
-      setMode('idle');
-      resolve();
-      return;
-    }
+  const safety = setTimeout(() => { speechSynthesis.cancel(); setMode('idle'); }, 30000);
+  const utt = new SpeechSynthesisUtterance(slice);
+  utt.lang = 'zh-TW';
+  utt.rate = state.speechRate;
+  const voice = getChineseVoice();
+  if (voice) utt.voice = voice;
 
-    speechSynthesis.cancel();
-    setMode('speaking');
+  utt.onboundary = (e) => { state.ttsCharIndex = fromIndex + e.charIndex; };
+  utt.onend = () => { clearTimeout(safety); state.ttsCharIndex = 0; setMode('idle'); };
+  utt.onerror = () => { clearTimeout(safety); setMode('idle'); };
 
-    const safetyTimeout = setTimeout(() => {
-      speechSynthesis.cancel();
-      setMode('idle');
-      resolve();
-    }, 30000);
-
-    const utterance = new SpeechSynthesisUtterance(textToSpeak);
-    utterance.lang = 'zh-TW';
-    utterance.rate = state.speechRate;
-
-    const voices = speechSynthesis.getVoices();
-    const zhVoice = voices.find(v => v.lang.includes('zh') && v.localService)
-      || voices.find(v => v.lang.startsWith('zh-TW'))
-      || voices.find(v => v.lang.startsWith('zh'));
-    if (zhVoice) utterance.voice = zhVoice;
-
-    // Track position for mid-speech speed changes
-    utterance.onboundary = (e) => {
-      state.ttsCharIndex = fromIndex + e.charIndex;
-    };
-
-    utterance.onend = () => {
-      clearTimeout(safetyTimeout);
-      state.ttsCharIndex = 0;
-      setMode('idle');
-      resolve();
-    };
-
-    utterance.onerror = (e) => {
-      clearTimeout(safetyTimeout);
-      console.error('TTS error:', e);
-      setMode('idle');
-      resolve();
-    };
-
-    speechSynthesis.speak(utterance);
-  });
+  speechSynthesis.speak(utt);
 }
 
-// Stop button
-ui.stopBtn.addEventListener('click', () => {
-  if (window.speechSynthesis) speechSynthesis.cancel();
-  setMode('idle');
-});
+// TTS controls
+$('stop-btn').addEventListener('click', () => { speechSynthesis?.cancel(); setMode('idle'); });
+$('replay-btn').addEventListener('click', () => { if (state.lastReply && state.mode !== 'processing') speak(state.lastReply); });
 
-// Replay button — always from the beginning
-ui.replayBtn.addEventListener('click', () => {
-  if (state.lastReply && state.mode !== 'processing') {
-    speakReply(state.lastReply, { isReplay: true });
+$('speed-slider').addEventListener('input', () => {
+  state.speechRate = SPEEDS[$('speed-slider').value];
+  $('speed-label').textContent = state.speechRate + 'x';
+  if (state.mode === 'speaking' && state.lastReply) speak(state.lastReply, state.ttsCharIndex || 0);
+});
+$('speed-label').textContent = SPEEDS[$('speed-slider').value] + 'x';
+
+if (window.speechSynthesis) { speechSynthesis.getVoices(); speechSynthesis.onvoiceschanged = () => speechSynthesis.getVoices(); }
+
+// ── Chat ──
+
+async function sendToAI(text) {
+  $('transcript').innerHTML = `<span style="color:var(--text-dim);font-size:13px">你說：</span> ${text}<br><span class="processing-hint">處理中，請稍候…</span>`;
+
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 60000);
+    const res = await fetch(`${API}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-auth-token': state.authToken },
+      body: JSON.stringify({ message: text }),
+      signal: ctrl.signal,
+    });
+    clearTimeout(timer);
+
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || `HTTP ${res.status}`); }
+    const { reply } = await res.json();
+    showText(reply);
+    speak(reply);
+  } catch (err) {
+    showText(err.name === 'AbortError' ? '回覆超時，請重試' : `錯誤：${err.message}`);
+    setMode('idle');
   }
-});
-
-// Speed slider — continue from current position with new speed
-ui.speedSlider.addEventListener('input', () => {
-  const idx = parseInt(ui.speedSlider.value, 10);
-  state.speechRate = SPEED_STEPS[idx];
-  ui.speedLabel.textContent = state.speechRate + 'x';
-
-  if (state.mode === 'speaking' && window.speechSynthesis && state.lastReply) {
-    const resumeFrom = state.ttsCharIndex || 0;
-    speakReply(state.lastReply, { fromIndex: resumeFrom });
-  }
-});
-
-// Init slider display
-ui.speedLabel.textContent = SPEED_STEPS[parseInt(ui.speedSlider.value, 10)] + 'x';
-
-// Preload voices
-if (window.speechSynthesis) {
-  speechSynthesis.getVoices();
-  speechSynthesis.onvoiceschanged = () => speechSynthesis.getVoices();
 }
 
-// ── Text input ──
-function handleTextSend() {
-  const text = ui.textInput.value.trim();
+// Text input
+$('send-btn').addEventListener('click', sendText);
+$('text-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); sendText(); } });
+
+function sendText() {
+  const text = $('text-input').value.trim();
   if (!text || state.mode === 'processing' || state.mode === 'speaking') return;
-  ui.textInput.value = '';
+  $('text-input').value = '';
   setMode('processing');
   sendToAI(text);
 }
 
-ui.sendBtn.addEventListener('click', handleTextSend);
-ui.textInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') {
-    e.preventDefault();
-    handleTextSend();
-  }
-});
-
-// ── Auth ──
-const authScreen = document.getElementById('auth-screen');
-const authInput = document.getElementById('auth-input');
-const authBtn = document.getElementById('auth-btn');
-const authError = document.getElementById('auth-error');
-const biometricBtn = document.getElementById('biometric-btn');
-
-let authToken = localStorage.getItem('vc_token') || '';
-
-async function verifyAuth(token) {
-  try {
-    const res = await fetch(API_BASE + '/api/auth', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token }),
-    });
-    const data = await res.json();
-    return data.ok === true;
-  } catch {
-    return false;
-  }
-}
-
-function showApp() {
-  authScreen.classList.add('hidden');
-  document.getElementById('app').classList.remove('hidden');
-  detectSpeechSupport();
-  setMode('idle');
-}
-
-// ── WebAuthn (Biometric) ──
-const WEBAUTHN_CRED_KEY = 'vc_webauthn_cred';
-
-function isWebAuthnAvailable() {
-  return window.PublicKeyCredential !== undefined &&
-    typeof window.PublicKeyCredential === 'function';
-}
-
-function bufToBase64(buf) {
-  return btoa(String.fromCharCode(...new Uint8Array(buf)));
-}
-
-function base64ToBuf(b64) {
-  return Uint8Array.from(atob(b64), c => c.charCodeAt(0)).buffer;
-}
-
-async function registerBiometric() {
-  if (!isWebAuthnAvailable()) return;
-
-  try {
-    const challenge = crypto.getRandomValues(new Uint8Array(32));
-    const userId = crypto.getRandomValues(new Uint8Array(16));
-
-    const credential = await navigator.credentials.create({
-      publicKey: {
-        challenge,
-        rp: { name: 'Chat with May', id: location.hostname },
-        user: {
-          id: userId,
-          name: 'june',
-          displayName: 'June',
-        },
-        pubKeyCredParams: [
-          { alg: -7, type: 'public-key' },   // ES256
-          { alg: -257, type: 'public-key' },  // RS256
-        ],
-        authenticatorSelection: {
-          authenticatorAttachment: 'platform', // built-in (Touch ID, Face ID, fingerprint)
-          userVerification: 'required',
-          residentKey: 'preferred',
-        },
-        timeout: 60000,
-      },
-    });
-
-    if (credential) {
-      const credData = {
-        id: credential.id,
-        rawId: bufToBase64(credential.rawId),
-        type: credential.type,
-      };
-      localStorage.setItem(WEBAUTHN_CRED_KEY, JSON.stringify(credData));
-      console.log('Biometric registered');
-      return true;
-    }
-  } catch (err) {
-    console.log('Biometric registration skipped:', err.message);
-  }
-  return false;
-}
-
-async function authenticateWithBiometric() {
-  const credStr = localStorage.getItem(WEBAUTHN_CRED_KEY);
-  if (!credStr || !isWebAuthnAvailable()) return false;
-
-  try {
-    const credData = JSON.parse(credStr);
-    const challenge = crypto.getRandomValues(new Uint8Array(32));
-
-    const assertion = await navigator.credentials.get({
-      publicKey: {
-        challenge,
-        rpId: location.hostname,
-        allowCredentials: [{
-          id: base64ToBuf(credData.rawId),
-          type: 'public-key',
-          transports: ['internal'],
-        }],
-        userVerification: 'required',
-        timeout: 60000,
-      },
-    });
-
-    if (assertion) {
-      // Biometric passed — restore the saved auth token
-      const savedToken = localStorage.getItem('vc_token');
-      if (savedToken) {
-        authToken = savedToken;
-        return true;
-      }
-    }
-  } catch (err) {
-    console.log('Biometric auth failed:', err.message);
-  }
-  return false;
-}
-
-// ── Auth handlers ──
-async function handleAuth() {
-  const token = authInput.value.trim();
-  if (!token) return;
-  authBtn.disabled = true;
-  authError.textContent = '';
-
-  if (await verifyAuth(token)) {
-    authToken = token;
-    localStorage.setItem('vc_token', token);
-
-    // Offer biometric registration
-    if (isWebAuthnAvailable() && !localStorage.getItem(WEBAUTHN_CRED_KEY)) {
-      if (confirm('要啟用指紋 / Face ID 快速登入嗎？')) {
-        await registerBiometric();
-      }
-    }
-
-    showApp();
-  } else {
-    authError.textContent = '通行碼錯誤';
-    authInput.value = '';
-    authInput.focus();
-  }
-  authBtn.disabled = false;
-}
-
-async function handleBiometricAuth() {
-  authError.textContent = '';
-  biometricBtn.disabled = true;
-
-  if (await authenticateWithBiometric()) {
-    if (await verifyAuth(authToken)) {
-      showApp();
-    } else {
-      authError.textContent = '通行碼已過期，請重新輸入';
-      localStorage.removeItem(WEBAUTHN_CRED_KEY);
-      biometricBtn.classList.add('hidden');
-    }
-  } else {
-    authError.textContent = '驗證失敗，請用通行碼登入';
-  }
-  biometricBtn.disabled = false;
-}
-
-authBtn.addEventListener('click', handleAuth);
-authInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') handleAuth();
-});
-biometricBtn.addEventListener('click', handleBiometricAuth);
-
-// ── Register ──
-const regName = document.getElementById('reg-name');
-const regEmail = document.getElementById('reg-email');
-const regBtn = document.getElementById('reg-btn');
-const regStatus = document.getElementById('reg-status');
-
-document.getElementById('show-register').addEventListener('click', (e) => {
-  e.preventDefault();
-  document.getElementById('auth-login').classList.add('hidden');
-  document.getElementById('auth-register').classList.remove('hidden');
-});
-
-document.getElementById('show-login').addEventListener('click', (e) => {
-  e.preventDefault();
-  document.getElementById('auth-register').classList.add('hidden');
-  document.getElementById('auth-login').classList.remove('hidden');
-});
-
-regBtn.addEventListener('click', async () => {
-  const name = regName.value.trim();
-  const email = regEmail.value.trim();
-  regStatus.textContent = '';
-  regStatus.className = '';
-
-  if (!name || !email) {
-    regStatus.textContent = '請填寫名字和 Email';
-    regStatus.className = 'error';
-    return;
-  }
-
-  regBtn.disabled = true;
-  regBtn.textContent = '送出中…';
-
-  try {
-    const res = await fetch(API_BASE + '/api/register', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, email }),
-    });
-    const data = await res.json();
-
-    if (data.ok) {
-      document.getElementById('auth-register').classList.add('hidden');
-      document.getElementById('auth-pending').classList.remove('hidden');
-    } else {
-      regStatus.textContent = data.error || '申請失敗';
-      regStatus.className = 'error';
-    }
-  } catch {
-    regStatus.textContent = '連線失敗';
-    regStatus.className = 'error';
-  }
-
-  regBtn.disabled = false;
-  regBtn.textContent = '送出申請';
-});
-
 // ── Init ──
-async function init() {
-  // Try stored token first
-  if (authToken && await verifyAuth(authToken)) {
-    // Has valid token — check if biometric is available for next time
-    showApp();
 
-    // If biometric not registered yet, offer it
-    if (isWebAuthnAvailable() && !localStorage.getItem(WEBAUTHN_CRED_KEY)) {
-      // Will offer on next password login
-    }
+(async () => {
+  if (state.authToken && await apiAuth(state.authToken)) {
+    enterApp();
   } else {
     localStorage.removeItem('vc_token');
-    authToken = '';
-    authScreen.classList.remove('hidden');
-
-    // Show biometric button if credential exists
-    if (localStorage.getItem(WEBAUTHN_CRED_KEY) && isWebAuthnAvailable()) {
-      biometricBtn.classList.remove('hidden');
-    }
-
-    authInput.focus();
+    state.authToken = '';
+    $('auth-screen').classList.remove('hidden');
+    if (localStorage.getItem('vc_cred') && isWebAuthn()) $('biometric-btn').classList.remove('hidden');
+    $('auth-input').focus();
   }
-}
-
-init();
+})();
