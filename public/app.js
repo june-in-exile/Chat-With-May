@@ -118,8 +118,14 @@ function initSpeech() {
 
   rec.onresult = (e) => {
     clearTimeout(state.silenceTimer);
-    // User is speaking — stop any playing response
-    if (state.mode === 'speaking') { stopTTS(); setMode('listening'); }
+    // User is speaking — stop any playing response and clear old text
+    if (state.mode === 'speaking' || state.mode === 'processing') {
+      stopTTS();
+      if (chatAbort) { chatAbort.abort(); chatAbort = null; }
+      state.transcript = '';
+      showText('');
+      setMode('listening');
+    }
     let final = '', interim = '';
     for (let i = 0; i < e.results.length; i++) {
       const r = e.results[i];
