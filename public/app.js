@@ -22,6 +22,8 @@ const ui = {
   statusIndicator: $('#status-indicator'),
   statusText: $('#status-text'),
   transcript: $('#transcript'),
+  textInput: $('#text-input'),
+  sendBtn: $('#send-btn'),
 };
 
 // ── State transitions ──
@@ -91,14 +93,20 @@ function initRecognition() {
     } else if (event.error === 'no-speech' || event.error === 'aborted') {
       return; // ignore, will auto-restart via onend
     } else if (event.error === 'network') {
-      // Network error — retry after a short delay
-      console.log('Network error, retrying...');
-      ui.transcript.textContent = '網路重新連線中…';
+      console.log('Network error');
+      state.networkErrors = (state.networkErrors || 0) + 1;
+      if (state.networkErrors >= 3) {
+        showError('語音辨識無法連線，請用下方輸入框打字');
+        setMode('idle');
+        state.networkErrors = 0;
+        return;
+      }
+      ui.transcript.textContent = '重新連線中…';
       setTimeout(() => {
         if (state.mode === 'listening') {
           try { rec.start(); } catch (e) { console.log('retry failed:', e); }
         }
-      }, 1000);
+      }, 1500);
       return;
     }
     // Other errors — don't reset if still listening
@@ -296,6 +304,23 @@ if (window.speechSynthesis) {
     console.log('Voices loaded:', voices.length);
   };
 }
+
+// ── Text input ──
+function handleTextSend() {
+  const text = ui.textInput.value.trim();
+  if (!text || state.mode === 'processing' || state.mode === 'speaking') return;
+  ui.textInput.value = '';
+  setMode('processing');
+  sendToAI(text);
+}
+
+ui.sendBtn.addEventListener('click', handleTextSend);
+ui.textInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    handleTextSend();
+  }
+});
 
 // ── Init ──
 async function init() {

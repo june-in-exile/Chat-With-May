@@ -263,12 +263,73 @@ body::after {
 
 /* ── Controls ── */
 #controls {
-  padding: 32px 24px;
-  padding-bottom: calc(env(safe-area-inset-bottom, 32px) + 32px);
+  padding: 20px 24px;
+  padding-bottom: calc(env(safe-area-inset-bottom, 20px) + 20px);
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 16px;
+}
+
+/* Text input row */
+#input-row {
+  display: flex;
+  width: 100%;
+  gap: 8px;
+}
+
+#text-input {
+  flex: 1;
+  height: 44px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  padding: 0 20px;
+  color: var(--text);
+  font-family: 'Outfit', sans-serif;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.3s;
+}
+
+#text-input::placeholder {
+  color: var(--text-dim);
+}
+
+#text-input:focus {
+  border-color: rgba(167, 139, 250, 0.4);
+}
+
+#send-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-dim);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+#send-btn:hover {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
+#send-btn:active {
+  transform: scale(0.93);
+}
+
+#mic-row {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
 }
 
 #mic-btn {
