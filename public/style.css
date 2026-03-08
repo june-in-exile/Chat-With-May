@@ -220,6 +220,14 @@ body::after {
   line-height: 1.6;
 }
 
+#auth-register,
+#auth-pending {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
 /* Register form */
 #auth-register input {
   width: 240px;
