@@ -109,6 +109,8 @@ function initSpeech() {
 
   const rec = new SR();
   rec.lang = 'zh-TW';
+  // Some browsers support multiple languages hint
+  try { rec.langs = ['zh-TW', 'en-US']; } catch {}
   rec.continuous = true;
   rec.interimResults = true;
 
