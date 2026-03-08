@@ -222,10 +222,18 @@ function speak(text, fromIndex = 0) {
   if (fromIndex === 0) state.ttsCharIndex = 0;
 
   const slice = text.slice(fromIndex);
-  if (!slice || !window.speechSynthesis) { setMode('idle'); return; }
+  if (!slice || !window.speechSynthesis) {
+    if (state.listening) setMode('listening'); else setMode('idle');
+    return;
+  }
 
   speechSynthesis.cancel();
   setMode('speaking');
+
+  // Keep recognition alive during playback so user can interrupt by speaking
+  if (state.listening && state.recognition) {
+    try { state.recognition.start(); } catch {}
+  }
 
   const safety = setTimeout(() => { speechSynthesis.cancel(); setMode('idle'); }, 30000);
   const utt = new SpeechSynthesisUtterance(slice);
@@ -235,8 +243,8 @@ function speak(text, fromIndex = 0) {
   if (voice) utt.voice = voice;
 
   utt.onboundary = (e) => { state.ttsCharIndex = fromIndex + e.charIndex; };
-  utt.onend = () => { clearTimeout(safety); state.ttsCharIndex = 0; setMode('idle'); };
-  utt.onerror = () => { clearTimeout(safety); setMode('idle'); };
+  utt.onend = () => { clearTimeout(safety); state.ttsCharIndex = 0; if (state.listening) setMode('listening'); else setMode('idle'); };
+  utt.onerror = () => { clearTimeout(safety); if (state.listening) setMode('listening'); else setMode('idle'); };
 
   speechSynthesis.speak(utt);
 }
