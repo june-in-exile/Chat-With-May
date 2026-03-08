@@ -118,6 +118,8 @@ function initSpeech() {
 
   rec.onresult = (e) => {
     clearTimeout(state.silenceTimer);
+    // User is speaking — stop any playing response
+    if (state.mode === 'speaking') { stopTTS(); setMode('listening'); }
     let final = '', interim = '';
     for (let i = 0; i < e.results.length; i++) {
       const r = e.results[i];
@@ -263,7 +265,12 @@ function speakAck() {
   speechSynthesis.speak(utt);
 }
 
+function stopTTS() {
+  if (window.speechSynthesis) speechSynthesis.cancel();
+}
+
 async function sendToAI(text) {
+  stopTTS(); // interrupt any playing response
   $('transcript').innerHTML = `<span style="color:var(--text-dim);font-size:13px">你說：</span> ${text}<br><span class="processing-hint">處理中，請稍候…</span>`;
   speakAck();
 
@@ -303,7 +310,8 @@ $('text-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.
 
 function sendText() {
   const text = $('text-input').value.trim();
-  if (!text || state.mode === 'processing' || state.mode === 'speaking') return;
+  if (!text || state.mode === 'processing') return;
+  if (state.mode === 'speaking') stopTTS();
   $('text-input').value = '';
   setMode('processing');
   sendToAI(text);
