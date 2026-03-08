@@ -384,6 +384,7 @@ const authScreen = document.getElementById('auth-screen');
 const authInput = document.getElementById('auth-input');
 const authBtn = document.getElementById('auth-btn');
 const authError = document.getElementById('auth-error');
+const biometricBtn = document.getElementById('biometric-btn');
 
 let authToken = localStorage.getItem('vc_token') || '';
 
@@ -408,6 +409,104 @@ function showApp() {
   setMode('idle');
 }
 
+// ── WebAuthn (Biometric) ──
+const WEBAUTHN_CRED_KEY = 'vc_webauthn_cred';
+
+function isWebAuthnAvailable() {
+  return window.PublicKeyCredential !== undefined &&
+    typeof window.PublicKeyCredential === 'function';
+}
+
+function bufToBase64(buf) {
+  return btoa(String.fromCharCode(...new Uint8Array(buf)));
+}
+
+function base64ToBuf(b64) {
+  return Uint8Array.from(atob(b64), c => c.charCodeAt(0)).buffer;
+}
+
+async function registerBiometric() {
+  if (!isWebAuthnAvailable()) return;
+
+  try {
+    const challenge = crypto.getRandomValues(new Uint8Array(32));
+    const userId = crypto.getRandomValues(new Uint8Array(16));
+
+    const credential = await navigator.credentials.create({
+      publicKey: {
+        challenge,
+        rp: { name: 'Chat with May', id: location.hostname },
+        user: {
+          id: userId,
+          name: 'june',
+          displayName: 'June',
+        },
+        pubKeyCredParams: [
+          { alg: -7, type: 'public-key' },   // ES256
+          { alg: -257, type: 'public-key' },  // RS256
+        ],
+        authenticatorSelection: {
+          authenticatorAttachment: 'platform', // built-in (Touch ID, Face ID, fingerprint)
+          userVerification: 'required',
+          residentKey: 'preferred',
+        },
+        timeout: 60000,
+      },
+    });
+
+    if (credential) {
+      const credData = {
+        id: credential.id,
+        rawId: bufToBase64(credential.rawId),
+        type: credential.type,
+      };
+      localStorage.setItem(WEBAUTHN_CRED_KEY, JSON.stringify(credData));
+      console.log('Biometric registered');
+      return true;
+    }
+  } catch (err) {
+    console.log('Biometric registration skipped:', err.message);
+  }
+  return false;
+}
+
+async function authenticateWithBiometric() {
+  const credStr = localStorage.getItem(WEBAUTHN_CRED_KEY);
+  if (!credStr || !isWebAuthnAvailable()) return false;
+
+  try {
+    const credData = JSON.parse(credStr);
+    const challenge = crypto.getRandomValues(new Uint8Array(32));
+
+    const assertion = await navigator.credentials.get({
+      publicKey: {
+        challenge,
+        rpId: location.hostname,
+        allowCredentials: [{
+          id: base64ToBuf(credData.rawId),
+          type: 'public-key',
+          transports: ['internal'],
+        }],
+        userVerification: 'required',
+        timeout: 60000,
+      },
+    });
+
+    if (assertion) {
+      // Biometric passed — restore the saved auth token
+      const savedToken = localStorage.getItem('vc_token');
+      if (savedToken) {
+        authToken = savedToken;
+        return true;
+      }
+    }
+  } catch (err) {
+    console.log('Biometric auth failed:', err.message);
+  }
+  return false;
+}
+
+// ── Auth handlers ──
 async function handleAuth() {
   const token = authInput.value.trim();
   if (!token) return;
@@ -417,6 +516,14 @@ async function handleAuth() {
   if (await verifyAuth(token)) {
     authToken = token;
     localStorage.setItem('vc_token', token);
+
+    // Offer biometric registration
+    if (isWebAuthnAvailable() && !localStorage.getItem(WEBAUTHN_CRED_KEY)) {
+      if (confirm('要啟用指紋 / Face ID 快速登入嗎？')) {
+        await registerBiometric();
+      }
+    }
+
     showApp();
   } else {
     authError.textContent = '通行碼錯誤';
@@ -426,20 +533,51 @@ async function handleAuth() {
   authBtn.disabled = false;
 }
 
+async function handleBiometricAuth() {
+  authError.textContent = '';
+  biometricBtn.disabled = true;
+
+  if (await authenticateWithBiometric()) {
+    if (await verifyAuth(authToken)) {
+      showApp();
+    } else {
+      authError.textContent = '通行碼已過期，請重新輸入';
+      localStorage.removeItem(WEBAUTHN_CRED_KEY);
+      biometricBtn.classList.add('hidden');
+    }
+  } else {
+    authError.textContent = '驗證失敗，請用通行碼登入';
+  }
+  biometricBtn.disabled = false;
+}
+
 authBtn.addEventListener('click', handleAuth);
 authInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') handleAuth();
 });
+biometricBtn.addEventListener('click', handleBiometricAuth);
 
 // ── Init ──
 async function init() {
   // Try stored token first
   if (authToken && await verifyAuth(authToken)) {
+    // Has valid token — check if biometric is available for next time
     showApp();
+
+    // If biometric not registered yet, offer it
+    if (isWebAuthnAvailable() && !localStorage.getItem(WEBAUTHN_CRED_KEY)) {
+      // Will offer on next password login
+    }
   } else {
     localStorage.removeItem('vc_token');
     authToken = '';
     authScreen.classList.remove('hidden');
+
+    // Show biometric button if credential exists
+    if (localStorage.getItem(WEBAUTHN_CRED_KEY) && isWebAuthnAvailable()) {
+      biometricBtn.classList.remove('hidden');
+    }
+
     authInput.focus();
   }
 }
