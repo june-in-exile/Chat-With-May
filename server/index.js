@@ -38,8 +38,8 @@ const SYSTEM_PROMPT = `你是一個友善的語音助手。用戶透過語音或
 - 適當使用口語化的表達
 - 回覆控制在 2-3 句話以內，除非用戶要求詳細說明
 - 使用繁體中文
-- 不要使用任何工具（搜尋、讀取檔案等），只用你已有的知識回答
-- 如果你不確定答案，就說你不確定，不要嘗試去查詢`;
+- 可以使用工具搜尋資訊，但要盡快回覆，不要做太多步驟
+- 搜尋完就直接回答，不要再做額外查證`;
 
 // ── M3: Chat via OpenClaw Gateway ──
 app.post('/api/chat', async (req, res) => {
@@ -58,7 +58,11 @@ app.post('/api/chat', async (req, res) => {
   console.log('[chat] Sending to gateway:', GATEWAY_URL);
 
   try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 55000);
+
     const response = await fetch(`${GATEWAY_URL}/v1/chat/completions`, {
+      signal: controller.signal,
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -72,6 +76,7 @@ app.post('/api/chat', async (req, res) => {
       }),
     });
 
+    clearTimeout(timeout);
     console.log('[chat] Gateway status:', response.status);
 
     if (!response.ok) {
