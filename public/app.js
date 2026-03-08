@@ -2,6 +2,9 @@
 
 const $ = (sel) => document.querySelector(sel);
 
+// API base URL — empty = same origin, or set to tunnel URL for Vercel deployment
+const API_BASE = window.__API_BASE || '';
+
 const state = {
   mode: 'idle',
   recognition: null,
@@ -191,7 +194,7 @@ async function sendToAI(text) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30000);
 
-    const res = await fetch('/api/chat', {
+    const res = await fetch(API_BASE + '/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: text }),
@@ -298,7 +301,7 @@ if (window.speechSynthesis) {
 async function init() {
   detectSpeechSupport();
   try {
-    const res = await fetch('/api/health');
+    const res = await fetch(API_BASE + '/api/health');
     const data = await res.json();
     if (data.status === 'ok') {
       setMode('idle');

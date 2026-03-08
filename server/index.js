@@ -14,6 +14,15 @@ const PORT = process.env.PORT || 3000;
 const GATEWAY_URL = process.env.GATEWAY_URL || 'http://127.0.0.1:6100';
 const GATEWAY_TOKEN = process.env.GATEWAY_TOKEN || 'be2baca938d49a36b1eccedbfff45bcca35d046799e9a9c7';
 
+// CORS for Vercel frontend
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Headers', 'Content-Type');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  if (req.method === 'OPTIONS') return res.sendStatus(200);
+  next();
+});
+
 app.use(express.static(join(__dirname, '..', 'public')));
 app.use(express.json({ limit: '10mb' }));
 
