@@ -180,13 +180,13 @@ function sendAndContinue() {
 onTap($('mic-btn'), () => {
   unlockAudio();
   if (state.listening) {
-    // User explicitly stops — end everything
+    // User explicitly stops — keep current query running
     stopListening();
-  } else if (state.mode === 'idle') {
+  } else {
+    // Cancel any in-flight query or TTS
+    if (chatAbort) { chatAbort.abort(); chatAbort = null; }
+    if (state.mode === 'speaking') speechSynthesis.cancel();
     startListening();
-  } else if (state.mode === 'speaking') {
-    speechSynthesis.cancel();
-    setMode('idle');
   }
 });
 
@@ -246,6 +246,8 @@ if (window.speechSynthesis) { speechSynthesis.getVoices(); speechSynthesis.onvoi
 
 // ── Chat ──
 
+let chatAbort = null; // current in-flight request controller
+
 const ACK_PHRASES = ['收到', '我知道了', '好的', '明白', '我查一下', '稍等', '讓我想想'];
 function randomAck() { return ACK_PHRASES[Math.floor(Math.random() * ACK_PHRASES.length)]; }
 
@@ -264,15 +266,18 @@ async function sendToAI(text) {
   speakAck();
 
   try {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 60000);
+    // Cancel any previous in-flight request
+    if (chatAbort) chatAbort.abort();
+    chatAbort = new AbortController();
+    const timer = setTimeout(() => chatAbort?.abort(), 60000);
     const res = await fetch(`${API}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-auth-token': state.authToken },
       body: JSON.stringify({ message: text }),
-      signal: ctrl.signal,
+      signal: chatAbort.signal,
     });
     clearTimeout(timer);
+    chatAbort = null;
 
     if (res.status === 401) { localStorage.removeItem('vc_token'); location.reload(); return; }
     if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || `HTTP ${res.status}`); }
@@ -280,8 +285,13 @@ async function sendToAI(text) {
     showText(reply);
     speak(reply);
   } catch (err) {
-    showText(err.name === 'AbortError' ? '回覆超時，請重試' : `錯誤：${err.message}`);
-    setMode('idle');
+    if (err.name === 'AbortError') {
+      // If listening, user interrupted — don't show error
+      if (!state.listening) showText('回覆超時，請重試');
+    } else {
+      showText(`錯誤：${err.message}`);
+    }
+    if (!state.listening) setMode('idle');
   }
 }
 
