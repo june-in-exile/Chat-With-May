@@ -29,7 +29,7 @@ app.post('/api/auth', (req, res) => {
   res.json({ ok: isValidToken(req.body.token) });
 });
 
-app.post('/api/register', (req, res) => {
+app.post('/api/register', async (req, res) => {
   const { name, email } = req.body;
   if (!name || !email) return res.status(400).json({ error: '請填寫名字和 Email' });
 
@@ -40,7 +40,7 @@ app.post('/api/register', (req, res) => {
     const host = req.headers['x-forwarded-host'] || `localhost:${config.port}`;
     const proto = req.headers['x-forwarded-host'] ? 'https' : 'http';
     const url = `${proto}://${host}/api/admin/approve?email=${encodeURIComponent(email)}&secret=${result.approveToken}`;
-    notifyAdmin(name, email, url);
+    await notifyAdmin(name, email, url);
   }
 
   res.json({ ok: true });
