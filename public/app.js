@@ -50,6 +50,16 @@ function setMode(mode) {
   };
   ui.statusText.textContent = labels[mode] || '';
   ui.micBtn.classList.toggle('active', mode === 'listening');
+
+  // Disable inputs during processing/speaking
+  const busy = mode === 'processing' || mode === 'speaking';
+  ui.textInput.disabled = busy;
+  ui.sendBtn.disabled = busy;
+  if (busy) {
+    ui.textInput.placeholder = mode === 'processing' ? '處理中…' : '回覆中…';
+  } else {
+    ui.textInput.placeholder = '輸入訊息…';
+  }
 }
 
 function showError(msg) {
@@ -205,7 +215,7 @@ function stopListening() {
 
 // ── AI Chat ──
 async function sendToAI(text) {
-  ui.transcript.textContent = '🗣️ ' + text;
+  ui.transcript.innerHTML = '<span style="color:var(--text-dim);font-size:13px">你說：</span> ' + text + '<br><span class="processing-hint">處理中，請稍候…</span>';
 
   try {
     const controller = new AbortController();
