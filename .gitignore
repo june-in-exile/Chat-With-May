@@ -1,8 +1,20 @@
+# Dependencies
 node_modules/
+
+# Environment / Secrets
 .env
-*.log
-data/
-.vercel
-.serena
-AGENTS.md
 .env*.local
+
+# Logs
+*.log
+
+# App Data
+data/
+
+# Deployment
+.vercel
+
+# Dev Tools
+.serena
+.claude
+AGENTS.md
