@@ -104,9 +104,8 @@ $('logout-btn').addEventListener('click', () => {
   $('auth-input').focus();
 });
 
-// View switching (login ↔ register)
+// View switching (login → register)
 $('show-register').addEventListener('click', (e) => { e.preventDefault(); $('auth-login').classList.add('hidden'); $('auth-register').classList.remove('hidden'); });
-$('show-login').addEventListener('click', (e) => { e.preventDefault(); $('auth-register').classList.add('hidden'); $('auth-login').classList.remove('hidden'); });
 
 // Registration
 $('reg-btn').addEventListener('click', async () => {

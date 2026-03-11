@@ -88,7 +88,7 @@ body::after {
   background: var(--bg);
 }
 
-#auth-screen.hidden { display: none; }
+.hidden { display: none !important; }
 
 #auth-box {
   display: flex;
