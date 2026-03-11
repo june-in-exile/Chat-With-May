@@ -118,10 +118,9 @@ $('reg-btn').addEventListener('click', async () => {
     return;
   }
 
-  const btn = $('reg-btn');
-  const originalText = btn.textContent;
-  btn.disabled = true;
-  btn.textContent = '處理中...';
+  $('reg-btn').disabled = true;
+  $('reg-status').textContent = '處理中...';
+  $('reg-status').className = '';
 
   try {
     const res = await fetch(`${API}/api/register`, {
@@ -129,7 +128,6 @@ $('reg-btn').addEventListener('click', async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, email })
     });
-    
     const data = await res.json();
     if (data.ok) {
       $('auth-register').classList.add('hidden');
@@ -137,16 +135,12 @@ $('reg-btn').addEventListener('click', async () => {
     } else {
       $('reg-status').textContent = data.error;
       $('reg-status').className = 'error';
-      btn.disabled = false;
-      btn.textContent = originalText;
     }
-  } catch (err) {
-    console.error('[auth] Register failed:', err);
-    $('reg-status').textContent = '連線失敗，請稍後再試';
+  } catch {
+    $('reg-status').textContent = '連線失敗';
     $('reg-status').className = 'error';
-    btn.disabled = false;
-    btn.textContent = originalText;
   }
+  $('reg-btn').disabled = false;
 });
 
 // ── Speech Recognition ──
