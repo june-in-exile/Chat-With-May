@@ -53,11 +53,11 @@ app.post('/api/register', async (req, res) => {
   res.json({ ok: true });
 });
 
-app.get('/api/admin/approve', (req, res) => {
+app.get('/api/admin/approve', async (req, res) => {
   const user = approve(req.query.email, req.query.secret);
   if (!user) return res.status(400).send('<html><body style="font-family:sans-serif;padding:40px;text-align:center"><h2>❌ 無效的核准連結</h2></body></html>');
 
-  notifyUserApproved(user.email, user.token);
+  await notifyUserApproved(user.email, user.token);
 
   res.send(`<html><body style="font-family:sans-serif;padding:40px;text-align:center;background:#08080c;color:#f0eef5">
     <h2>✅ 已核准</h2>
