@@ -61,33 +61,53 @@ export function listAll(secret) {
 // ── Notifications ──
 
 export async function notifyAdmin(name, email, approveUrl) {
-  if (config.smtp.user && config.smtp.pass) {
+  const { user, pass } = config.smtp;
+  
+  if (user && pass) {
+    console.log(`[auth] Attempting to send email to ${config.auth.adminEmail} via ${user}...`);
     try {
-      const transport = nodemailer.createTransport({ service: 'gmail', auth: { user: config.smtp.user, pass: config.smtp.pass } });
+      const transport = nodemailer.createTransport({
+        service: 'gmail',
+        auth: { user, pass }
+      });
+      
       await transport.sendMail({
-        from: `Chat with May <${config.smtp.user}>`,
+        from: `Chat with May <${user}>`,
         to: config.auth.adminEmail,
         subject: `[Chat with May] 新使用者申請：${name}`,
         html: `<h2>新使用者申請</h2><p><b>名字：</b>${name}</p><p><b>Email：</b>${email}</p><p><a href="${approveUrl}" style="display:inline-block;padding:12px 24px;background:#a78bfa;color:white;border-radius:8px;text-decoration:none;">核准</a></p>`,
       });
+      console.log('[auth] Admin notification email sent successfully.');
       return;
     } catch (err) {
-      console.error('[auth] Email failed:', err.message);
+      console.error('[auth] Email failed! Full error:', err);
+      // If it's a login issue, remind the user about App Passwords
+      if (err.message.includes('Invalid login')) {
+        console.error('[auth] TIP: If using Gmail, make sure you use an "App Password", not your main Google password.');
+      }
     }
+  } else {
+    console.warn('[auth] SMTP_USER or SMTP_PASS missing. Skipping email notification.');
   }
 
   // Fallback: OpenClaw webhook
-  try {
-    await fetch(`${config.gateway.url}/hooks/wake`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.gateway.token}` },
-      body: JSON.stringify({ text: `[Chat with May] 新使用者申請：${name} (${email})。核准連結：${approveUrl}`, mode: 'now' }),
-    });
-  } catch (err) {
-    console.error('[auth] Webhook failed:', err.message);
+  if (config.gateway.url && config.gateway.token) {
+    console.log('[auth] Attempting fallback webhook notification...');
+    try {
+      await fetch(`${config.gateway.url}/hooks/wake`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.gateway.token}` },
+        body: JSON.stringify({ text: `[Chat with May] 新使用者申請：${name} (${email})。核准連結：${approveUrl}`, mode: 'now' }),
+      });
+      console.log('[auth] Webhook notification sent.');
+    } catch (err) {
+      console.error('[auth] Webhook failed:', err.message);
+    }
+  } else {
+    console.warn('[auth] No webhook configured for fallback.');
   }
 
-  console.log(`[auth] Approve URL: ${approveUrl}`);
+  console.log(`[auth] MANUAL APPROVAL URL: ${approveUrl}`);
 }
 
 export async function notifyUserApproved(email, token) {

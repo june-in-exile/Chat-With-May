@@ -84,6 +84,12 @@ async function doLogin() {
 
 // Logout
 $('logout-btn').addEventListener('click', () => {
+  // Stop TTS playback, microphone, and speech recognition
+  if (window.speechSynthesis) speechSynthesis.cancel();
+  state.recognition?.stop();
+  state.listening = false;
+  clearTimeout(state.silenceTimer);
+  setMode('idle');
   localStorage.removeItem('vc_token');
   state.authToken = '';
   $('app').classList.add('hidden');

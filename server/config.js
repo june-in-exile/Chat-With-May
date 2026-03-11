@@ -6,6 +6,8 @@ dotenv.config();
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+const smtpUser = process.env.SMTP_USER || 'df41022@gmail.com';
+
 export default {
   port: process.env.PORT || 3000,
   publicUrl: process.env.PUBLIC_URL || 'https://chat-with-may.vercel.app',
@@ -20,11 +22,17 @@ export default {
   auth: {
     adminToken: process.env.AUTH_TOKEN || '',
     adminSecret: process.env.ADMIN_SECRET || '',
-    adminEmail: process.env.ADMIN_EMAIL || 'df41022@gmail.com',
+    adminEmail: process.env.ADMIN_EMAIL || smtpUser, // Fallback to SMTP_USER if not set
   },
 
   smtp: {
-    user: process.env.SMTP_USER || 'df41022@gmail.com',
+    user: smtpUser,
     pass: process.env.SMTP_PASS || '',
   },
 };
+
+// Startup verification
+if (process.env.NODE_ENV !== 'test') {
+  console.log(`[config] Admin Email: ${process.env.ADMIN_EMAIL || smtpUser}`);
+  console.log(`[config] SMTP configured: ${process.env.SMTP_PASS ? 'YES' : 'NO'}`);
+}
