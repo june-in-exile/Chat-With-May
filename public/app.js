@@ -133,14 +133,8 @@ function initSpeech() {
 
   rec.onresult = (e) => {
     clearTimeout(state.silenceTimer);
-    // User is speaking — stop any playing response and clear old text
-    if (state.mode === 'speaking' || state.mode === 'processing') {
-      stopTTS();
-      if (chatAbort) { chatAbort.abort(); chatAbort = null; }
-      state.transcript = '';
-      showText('');
-      setMode('listening');
-    }
+    // If somehow receiving results while not in listening mode, ignore them
+    if (state.mode !== 'listening') return;
     let final = '', interim = '';
     for (let i = state.sentIdx; i < e.results.length; i++) {
       const r = e.results[i];
@@ -168,6 +162,16 @@ function initSpeech() {
   rec.onend = () => { if (state.listening) try { rec.start(); } catch {} };
 
   state.recognition = rec;
+}
+
+function resumeRecognition() {
+  if (!state.recognition) return;
+  state.transcript = '';
+  state.sentIdx = 0;
+  try { state.recognition.start(); } catch {
+    state.recognition.stop();
+    setTimeout(() => { try { state.recognition.start(); } catch {} }, 200);
+  }
 }
 
 function startListening() {
@@ -252,9 +256,10 @@ function speak(text, fromIndex = 0) {
   speechSynthesis.cancel();
   setMode('speaking');
 
-  // Keep recognition alive during playback so user can interrupt by speaking
-  if (state.listening && state.recognition) {
-    try { state.recognition.start(); } catch {}
+  // Pause recognition during TTS to prevent echo feedback loop
+  // (mic picks up speaker output → re-recognized as input → infinite loop)
+  if (state.recognition) {
+    try { state.recognition.stop(); } catch {}
   }
 
   const safety = setTimeout(() => { speechSynthesis.cancel(); setMode('idle'); }, 30000);
@@ -265,8 +270,15 @@ function speak(text, fromIndex = 0) {
   if (voice) utt.voice = voice;
 
   utt.onboundary = (e) => { state.ttsCharIndex = fromIndex + e.charIndex; };
-  utt.onend = () => { clearTimeout(safety); state.ttsCharIndex = 0; if (state.listening) setMode('listening'); else setMode('idle'); };
-  utt.onerror = () => { clearTimeout(safety); if (state.listening) setMode('listening'); else setMode('idle'); };
+  utt.onend = () => {
+    clearTimeout(safety);
+    state.ttsCharIndex = 0;
+    if (state.listening) { resumeRecognition(); setMode('listening'); } else setMode('idle');
+  };
+  utt.onerror = () => {
+    clearTimeout(safety);
+    if (state.listening) { resumeRecognition(); setMode('listening'); } else setMode('idle');
+  };
 
   speechSynthesis.speak(utt);
 }
