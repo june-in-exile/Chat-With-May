@@ -12,7 +12,7 @@ export default {
   port: process.env.PORT || 3000,
   publicUrl: process.env.PUBLIC_URL || 'https://chat-with-may.vercel.app',
   publicDir: join(__dirname, '..', 'public'),
-  dataDir: join(__dirname, '..', 'data'),
+  dataDir: process.env.VERCEL ? '/tmp/data' : join(__dirname, '..', 'data'),
 
   gateway: {
     url: process.env.GATEWAY_URL || 'http://127.0.0.1:6100',
