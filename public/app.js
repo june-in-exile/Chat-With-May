@@ -18,6 +18,7 @@ const state = {
   silenceTimer: null,
   audioUnlocked: false,
   sentIdx: 0,
+  ttsPaused: false,
 };
 
 // ── UI Helpers ──
@@ -88,6 +89,7 @@ $('logout-btn').addEventListener('click', () => {
   if (window.speechSynthesis) speechSynthesis.cancel();
   state.recognition?.stop();
   state.listening = false;
+  state.ttsPaused = false;
   clearTimeout(state.silenceTimer);
   setMode('idle');
   localStorage.removeItem('vc_token');
@@ -165,13 +167,14 @@ function initSpeech() {
     }
   };
 
-  rec.onend = () => { if (state.listening) try { rec.start(); } catch {} };
+  rec.onend = () => { if (state.listening && !state.ttsPaused) try { rec.start(); } catch {} };
 
   state.recognition = rec;
 }
 
 function resumeRecognition() {
   if (!state.recognition) return;
+  state.ttsPaused = false;
   state.transcript = '';
   state.sentIdx = 0;
   try { state.recognition.start(); } catch {
@@ -264,11 +267,12 @@ function speak(text, fromIndex = 0) {
 
   // Pause recognition during TTS to prevent echo feedback loop
   // (mic picks up speaker output → re-recognized as input → infinite loop)
+  state.ttsPaused = true;
   if (state.recognition) {
     try { state.recognition.stop(); } catch {}
   }
 
-  const safety = setTimeout(() => { speechSynthesis.cancel(); setMode('idle'); }, 30000);
+  const safety = setTimeout(() => { speechSynthesis.cancel(); state.ttsPaused = false; setMode('idle'); }, 30000);
   const utt = new SpeechSynthesisUtterance(slice);
   utt.lang = 'zh-TW';
   utt.rate = state.speechRate;
@@ -290,7 +294,7 @@ function speak(text, fromIndex = 0) {
 }
 
 // TTS controls
-$('stop-btn').addEventListener('click', () => { speechSynthesis?.cancel(); setMode('idle'); });
+$('stop-btn').addEventListener('click', () => { speechSynthesis?.cancel(); state.ttsPaused = false; setMode('idle'); });
 $('replay-btn').addEventListener('click', () => { if (state.lastReply && state.mode !== 'processing') speak(state.lastReply); });
 
 $('speed-slider').addEventListener('input', () => {
