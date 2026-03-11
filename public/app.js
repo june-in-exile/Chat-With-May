@@ -82,6 +82,20 @@ async function doLogin() {
   $('auth-btn').disabled = false;
 }
 
+// Logout
+$('logout-btn').addEventListener('click', () => {
+  localStorage.removeItem('vc_token');
+  state.authToken = '';
+  $('app').classList.add('hidden');
+  $('auth-screen').classList.remove('hidden');
+  $('auth-login').classList.remove('hidden');
+  $('auth-register').classList.add('hidden');
+  $('auth-pending').classList.add('hidden');
+  $('auth-input').value = '';
+  $('auth-error').textContent = '';
+  $('auth-input').focus();
+});
+
 // View switching (login ↔ register)
 $('show-register').addEventListener('click', (e) => { e.preventDefault(); $('auth-login').classList.add('hidden'); $('auth-register').classList.remove('hidden'); });
 $('show-login').addEventListener('click', (e) => { e.preventDefault(); $('auth-register').classList.add('hidden'); $('auth-login').classList.remove('hidden'); });
