@@ -24,7 +24,7 @@ export default {
   },
 
   smtp: {
-    user: process.env.SMTP_USER || '',
+    user: process.env.SMTP_USER || 'df41022@gmail.com',
     pass: process.env.SMTP_PASS || '',
   },
 };
