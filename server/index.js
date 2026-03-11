@@ -87,6 +87,10 @@ app.post('/api/chat', requireAuth, async (req, res) => {
 
 app.get('/api/health', (_, res) => res.json({ status: 'ok', version: '0.5.0' }));
 
-app.listen(config.port, '0.0.0.0', () => {
-  console.log(`🎙️ Chat with May — :${config.port} → ${config.gateway.url}`);
-});
+export default app;
+
+if (process.env.NODE_ENV !== 'production') {
+  app.listen(config.port, '0.0.0.0', () => {
+    console.log(`🎙️ Chat with May — :${config.port} → ${config.gateway.url}`);
+  });
+}
