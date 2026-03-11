@@ -112,16 +112,41 @@ $('show-login').addEventListener('click', (e) => { e.preventDefault(); $('auth-r
 $('reg-btn').addEventListener('click', async () => {
   const name = $('reg-name').value.trim(), email = $('reg-email').value.trim();
   $('reg-status').textContent = '';
-  if (!name || !email) { $('reg-status').textContent = '請填寫名字和 Email'; $('reg-status').className = 'error'; return; }
+  if (!name || !email) {
+    $('reg-status').textContent = '請填寫名字和 Email';
+    $('reg-status').className = 'error';
+    return;
+  }
 
-  $('reg-btn').disabled = true;
+  const btn = $('reg-btn');
+  const originalText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '處理中...';
+
   try {
-    const res = await fetch(`${API}/api/register`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, email }) });
+    const res = await fetch(`${API}/api/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, email })
+    });
+    
     const data = await res.json();
-    if (data.ok) { $('auth-register').classList.add('hidden'); $('auth-pending').classList.remove('hidden'); }
-    else { $('reg-status').textContent = data.error; $('reg-status').className = 'error'; }
-  } catch { $('reg-status').textContent = '連線失敗'; $('reg-status').className = 'error'; }
-  $('reg-btn').disabled = false;
+    if (data.ok) {
+      $('auth-register').classList.add('hidden');
+      $('auth-pending').classList.remove('hidden');
+    } else {
+      $('reg-status').textContent = data.error;
+      $('reg-status').className = 'error';
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }
+  } catch (err) {
+    console.error('[auth] Register failed:', err);
+    $('reg-status').textContent = '連線失敗，請稍後再試';
+    $('reg-status').className = 'error';
+    btn.disabled = false;
+    btn.textContent = originalText;
+  }
 });
 
 // ── Speech Recognition ──
