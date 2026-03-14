@@ -13,5 +13,9 @@
     "form-data": "^4.0.5",
     "multer": "^2.1.1",
     "nodemailer": "^8.0.1"
-  }
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "note": "Requires Python 3.x and openai-whisper + ffmpeg for local transcription."
 }

@@ -24,6 +24,7 @@ export default {
     adminSecret: process.env.ADMIN_SECRET || '',
     adminEmail: process.env.ADMIN_EMAIL || smtpUser, // Fallback to SMTP_USER if not set
     groqKey: process.env.GROQ_API_KEY || '',
+    whisperModel: process.env.WHISPER_MODEL || 'base',
   },
 
   smtp: {

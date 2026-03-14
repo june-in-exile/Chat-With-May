@@ -24,20 +24,45 @@
 
 ## 使用的模型
 
-- **語音辨識** — Groq Whisper-large-v3-turbo（透過 OpenAI-compatible API）
+- **語音辨識** — 本地 OpenAI Whisper (base 模型) 或 Groq Whisper-large-v3-turbo
 - **對話理解** — Claude API（經由 OpenClaw Gateway）
 - **語音回覆** — 瀏覽器 Web Speech API TTS，可調語速（0.5x ~ 2x）
 
 ## 功能
 
-- **語音輸入** — MediaRecorder 錄製音訊 → Whisper 轉文字，支援中英文混合辨識
+- **語音輸入** — MediaRecorder 錄製音訊 → 本地 Whisper 轉文字（支援中英文混合辨識，隱私安全）
 - **語音回覆** — 瀏覽器 TTS，可調語速（0.5x ~ 2x）
 - **語音中斷** — 回覆播放中說話可立即打斷，發送新訊息
 - **靜默自動送出** — 停頓 2 秒自動送出，不需手動按鍵
 - **文字輸入** — 也可直接打字對話
 - **PWA** — 可安裝到手機桌面
 
-## 使用者認證
+## 本地語音辨識設定 (Whisper)
+
+本專案支援在伺服器端本地執行 OpenAI Whisper 進行語音辨識，無需依賴外部 API。
+
+### 安裝依賴
+
+1. 安裝 Python 3 與 pip。
+2. 安裝 Whisper 與 ffmpeg：
+
+```bash
+pip3 install openai-whisper
+# macOS
+brew install ffmpeg
+# Ubuntu/Debian
+sudo apt update && sudo apt install ffmpeg
+```
+
+### 設定環境變數
+
+在 `.env` 中：
+- `WHISPER_MODEL`: 模型大小 (`tiny`, `base`, `small`, `medium`, `large`)，預設為 `base`。
+- `GROQ_API_KEY`: 若留空，則自動切換為本地 Whisper。若填寫，則優先使用 Groq Cloud API（速度較快，適合 serverless 環境如 Vercel）。
+
+> **注意**：Vercel 部署環境不支援本地 Whisper，若要部署在 Vercel 請務必設定 `GROQ_API_KEY`。
+
+## 專案結構
 
 採用通行碼（token）機制：
 
@@ -87,6 +112,8 @@ npm run dev
 
 | 變數 | 說明 | 必填 |
 |------|------|------|
+| `WHISPER_MODEL` | 本地 Whisper 模型大小 | 否（預設 `base`） |
+| `GROQ_API_KEY` | Groq API Key (設定此項則優先使用 Groq) | 否 |
 | `GATEWAY_URL` | OpenClaw Gateway URL | 是 |
 | `GATEWAY_TOKEN` | Gateway 認證 token | 是 |
 | `AUTH_TOKEN` | 管理員通行碼 | 是 |

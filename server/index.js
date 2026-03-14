@@ -1,5 +1,9 @@
 import express from 'express';
 import multer from 'multer';
+import { execFile } from 'child_process';
+import { writeFile, unlink } from 'fs/promises';
+import { join } from 'path';
+import { randomUUID } from 'crypto';
 import config from './config.js';
 import { isValidToken, register, approve, listAll, notifyAdmin, notifyUserApproved } from './users.js';
 import { chat } from './chat.js';
@@ -89,34 +93,62 @@ app.post('/api/chat', requireAuth, async (req, res) => {
 
 app.post('/api/transcribe', requireAuth, upload.single('audio'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: '沒有音訊檔案' });
-  const { groqKey } = config.auth;
-  if (!groqKey) return res.status(500).json({ error: '未配置 Groq API Key' });
 
   try {
-    const formData = new FormData();
-    const blob = new Blob([req.file.buffer], { type: req.file.mimetype });
-    formData.append('file', blob, 'audio.webm');
-    formData.append('model', 'whisper-large-v3-turbo');
-    formData.append('language', 'zh');
-
-    const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${groqKey}` },
-      body: formData,
-    });
-
-    if (!response.ok) {
-      const err = await response.text();
-      throw new Error(`Groq API ${response.status}: ${err.slice(0, 100)}`);
-    }
-
-    const data = await response.json();
-    res.json({ text: data.text });
+    const text = config.auth.groqKey
+      ? await transcribeGroq(req.file)
+      : await transcribeLocal(req.file);
+    res.json({ text });
   } catch (err) {
     console.error('[transcribe]', err.message);
     res.status(500).json({ error: '語音辨識失敗' });
   }
 });
+
+// Groq Cloud API（現有方案）
+async function transcribeGroq(file) {
+  const formData = new FormData();
+  const blob = new Blob([file.buffer], { type: file.mimetype });
+  formData.append('file', blob, 'audio.webm');
+  formData.append('model', 'whisper-large-v3-turbo');
+  formData.append('language', 'zh');
+
+  const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${config.auth.groqKey}` },
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`Groq API ${response.status}: ${err.slice(0, 100)}`);
+  }
+
+  const data = await response.json();
+  return data.text;
+}
+
+// Local Whisper（新方案）
+async function transcribeLocal(file) {
+  const tmpPath = join('/tmp', `whisper-${randomUUID()}.webm`);
+  try {
+    await writeFile(tmpPath, file.buffer);
+    const scriptPath = join(import.meta.dirname, 'transcribe.py');
+    const result = await new Promise((resolve, reject) => {
+      execFile('python3', [scriptPath, tmpPath, 'zh', config.auth.whisperModel], {
+        timeout: 120000, // 增加到 120 秒超時，本地模型可能較慢
+      }, (err, stdout, stderr) => {
+        if (err) return reject(new Error(stderr || err.message));
+        try { resolve(JSON.parse(stdout)); }
+        catch { reject(new Error('Failed to parse Whisper output')); }
+      });
+    });
+    if (result.error) throw new Error(result.error);
+    return result.text;
+  } finally {
+    unlink(tmpPath).catch(() => {});
+  }
+}
 
 app.get('/api/health', (_, res) => res.json({ status: 'ok', version: '0.5.0' }));
 
