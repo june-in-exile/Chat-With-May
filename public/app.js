@@ -8,16 +8,17 @@ const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 // ── State ──
 
 const state = {
-  mode: 'idle',        // idle | listening | processing | speaking
+  mode: 'idle',
   authToken: localStorage.getItem('vc_token') || '',
   lastReply: '',
   speechRate: 1,
   ttsCharIndex: 0,
-  recognition: null,
-  transcript: '',
+  mediaRecorder: null,
+  audioChunks: [],
+  audioContext: null,
+  analyser: null,
   silenceTimer: null,
   audioUnlocked: false,
-  sentIdx: 0,
   ttsPaused: false,
 };
 
@@ -85,10 +86,9 @@ async function doLogin() {
 
 // Logout
 $('logout-btn').addEventListener('click', () => {
-  // Stop TTS playback, microphone, and speech recognition
+  // Stop TTS playback and microphone
   if (window.speechSynthesis) speechSynthesis.cancel();
-  state.recognition?.stop();
-  state.listening = false;
+  stopListening();
   state.ttsPaused = false;
   clearTimeout(state.silenceTimer);
   setMode('idle');
@@ -142,111 +142,137 @@ $('reg-btn').addEventListener('click', async () => {
   $('reg-btn').disabled = false;
 });
 
-// ── Speech Recognition ──
+// ── Speech Recognition (OpenAI Whisper) ──
 
-function initSpeech() {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) return;
-
-  const rec = new SR();
-  rec.lang = 'zh-TW';
-  // Some browsers support multiple languages hint
-  try { rec.langs = ['zh-TW', 'en-US']; } catch {}
-  rec.continuous = true;
-  rec.interimResults = true;
-
-  let networkErrors = 0;
-
-  rec.onresult = (e) => {
-    clearTimeout(state.silenceTimer);
-    // If somehow receiving results while not in listening mode, ignore them
-    if (state.mode !== 'listening') return;
-    let final = '', interim = '';
-    for (let i = state.sentIdx; i < e.results.length; i++) {
-      const r = e.results[i];
-      if (r.isFinal) final += r[0].transcript; else interim += r[0].transcript;
-    }
-    state.transcript = final;
-    showText(state.transcript + interim);
-
-    state.silenceTimer = setTimeout(() => {
-      if (state.listening && state.transcript.trim()) sendAndContinue();
-    }, 2000);
-  };
-
-  rec.onerror = (e) => {
-    if (e.error === 'not-allowed') { showText('請允許麥克風權限'); setMode('idle'); return; }
-    if (e.error === 'no-speech' || e.error === 'aborted') return;
-    if (e.error === 'network') {
-      if (++networkErrors >= 3) { showText('語音辨識無法連線，請用輸入框打字'); setMode('idle'); networkErrors = 0; return; }
-      showText('重新連線中…');
-      setTimeout(() => { if (state.listening) try { rec.start(); } catch {} }, 1500);
-      return;
-    }
-  };
-
-  rec.onend = () => { if (state.listening && !state.ttsPaused) try { rec.start(); } catch {} };
-
-  state.recognition = rec;
-}
-
-function resumeRecognition() {
-  if (!state.recognition) return;
-  state.ttsPaused = false;
-  state.transcript = '';
-  state.sentIdx = 0;
-  try { state.recognition.start(); } catch {
-    state.recognition.stop();
-    setTimeout(() => { try { state.recognition.start(); } catch {} }, 200);
+async function initSpeech() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    showText('您的瀏覽器不支援語音功能');
+    return;
   }
 }
 
-function startListening() {
-  if (!state.recognition) { showText('請使用 Chrome 瀏覽器'); return; }
-  state.transcript = '';
-  state.sentIdx = 0;
-  showText('');
-  state.listening = true;
-  try { state.recognition.start(); setMode('listening'); } catch {
-    state.recognition.stop();
-    setTimeout(() => { try { state.recognition.start(); setMode('listening'); } catch {} }, 200);
+async function startListening() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    state.audioChunks = [];
+    
+    // ── Silence Detection Setup ──
+    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    const analyser = audioContext.createAnalyser();
+    const source = audioContext.createMediaStreamSource(stream);
+    source.connect(analyser);
+    analyser.fftSize = 256;
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+    
+    state.audioContext = audioContext;
+    state.analyser = analyser;
+    let lastSoundTime = Date.now();
+
+    const checkSilence = () => {
+      if (!state.listening) return;
+      analyser.getByteFrequencyData(dataArray);
+      let sum = 0;
+      for (let i = 0; i < bufferLength; i++) sum += dataArray[i];
+      const average = sum / bufferLength;
+
+      // Threshold for "silence" - 10 might be too high for some mics, keeping it sensitive
+      if (average > 10) {
+        lastSoundTime = Date.now();
+      } else {
+        if (Date.now() - lastSoundTime > 3000) {
+          console.log('Silence detected, auto-submitting...');
+          stopListening(); // This will now set mode to processing immediately
+          return;
+        }
+      }
+      requestAnimationFrame(checkSilence);
+    };
+
+    const recorder = new MediaRecorder(stream);
+    state.mediaRecorder = recorder; // Set this early
+    
+    recorder.ondataavailable = (e) => {
+      if (e.data.size > 0) state.audioChunks.push(e.data);
+    };
+
+    recorder.onstop = async () => {
+      stream.getTracks().forEach(track => track.stop());
+      if (state.audioContext) {
+        state.audioContext.close();
+        state.audioContext = null;
+      }
+      
+      if (state.audioChunks.length > 0) {
+        showText('辨識中…');
+        const audioBlob = new Blob(state.audioChunks, { type: 'audio/webm' });
+        const text = await transcribeAudio(audioBlob);
+        if (text && text.trim()) {
+          sendToAI(text);
+        } else {
+          setMode('idle');
+          showText('未能辨識語音，請重試');
+        }
+      } else {
+        setMode('idle');
+      }
+    };
+
+    state.listening = true;
+    if (audioContext.state === 'suspended') await audioContext.resume();
+    recorder.start();
+    setMode('listening');
+    showText('正在聽你說話...');
+    requestAnimationFrame(checkSilence);
+  } catch (err) {
+    console.error('Mic error:', err);
+    showText('無法開啟麥克風：' + err.message);
+    setMode('idle');
   }
 }
 
 function stopListening() {
-  clearTimeout(state.silenceTimer);
-  state.recognition?.stop();
+  if (!state.listening) return;
   state.listening = false;
-  const text = state.transcript.trim();
-  if (text) { setMode('processing'); sendToAI(text); } else setMode('idle');
+  setMode('processing'); // Immediate feedback
+  if (state.mediaRecorder && state.mediaRecorder.state !== 'inactive') {
+    state.mediaRecorder.stop();
+  }
 }
 
-// Auto-send on silence, but keep listening
-function sendAndContinue() {
-  clearTimeout(state.silenceTimer);
-  const text = state.transcript.trim();
-  if (!text) return;
-  state.transcript = '';
-  state.sentIdx = 0;
-  // Restart recognition to clear results buffer
-  if (state.recognition) {
-    try { state.recognition.stop(); } catch {}
-    // onend handler will auto-restart since state.listening is true
+function resumeRecognition() {
+  state.ttsPaused = false;
+  // Whisper doesn't need to "resume" like Web Speech API
+}
+
+async function transcribeAudio(blob) {
+  const formData = new FormData();
+  formData.append('audio', blob);
+
+  try {
+    const res = await fetch(`${API}/api/transcribe`, {
+      method: 'POST',
+      headers: { 'x-auth-token': state.authToken },
+      body: formData,
+    });
+
+    if (res.status === 401) { localStorage.removeItem('vc_token'); location.reload(); return null; }
+    if (!res.ok) throw new Error('辨識失敗');
+
+    const data = await res.json();
+    return data.text;
+  } catch (err) {
+    console.error('Transcribe error:', err);
+    return null;
   }
-  setMode('processing');
-  sendToAI(text).then(() => {
-    if (state.listening) setMode('listening');
-  });
 }
 
 // Mic button
 onTap($('mic-btn'), () => {
   unlockAudio();
   if (state.listening) {
-    // User explicitly stops — keep current query running
     stopListening();
   } else {
-    // Cancel any in-flight query or TTS
     if (chatAbort) { chatAbort.abort(); chatAbort = null; }
     if (state.mode === 'speaking') speechSynthesis.cancel();
     startListening();
@@ -283,12 +309,9 @@ function speak(text, fromIndex = 0) {
   speechSynthesis.cancel();
   setMode('speaking');
 
-  // Pause recognition during TTS to prevent echo feedback loop
-  // (mic picks up speaker output → re-recognized as input → infinite loop)
+  // Prevent listening during TTS to avoid echo feedback
+  // (mic picks up speaker output → re-sent as input → infinite loop)
   state.ttsPaused = true;
-  if (state.recognition) {
-    try { state.recognition.stop(); } catch {}
-  }
 
   const safety = setTimeout(() => { speechSynthesis.cancel(); state.ttsPaused = false; setMode('idle'); }, 30000);
   const utt = new SpeechSynthesisUtterance(slice);
@@ -348,7 +371,7 @@ function stopTTS() {
 async function sendToAI(text) {
   stopTTS();
   if (chatAbort) { chatAbort.abort(); chatAbort = null; } // cancel previous request
-  $('transcript').innerHTML = `<span style="color:var(--text-dim);font-size:13px">你說：</span> ${text}<br><span class="processing-hint">處理中，請稍候…</span>`;
+  $('transcript').innerHTML = `<span class="processing-hint">處理中，請稍候…</span>`;
   speakAck();
 
   try {

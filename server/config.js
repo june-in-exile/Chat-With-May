@@ -23,6 +23,7 @@ export default {
     adminToken: process.env.AUTH_TOKEN || '',
     adminSecret: process.env.ADMIN_SECRET || '',
     adminEmail: process.env.ADMIN_EMAIL || smtpUser, // Fallback to SMTP_USER if not set
+    groqKey: process.env.GROQ_API_KEY || '',
   },
 
   smtp: {

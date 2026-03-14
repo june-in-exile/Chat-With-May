@@ -8,7 +8,8 @@
 
 ```
 瀏覽器 (PWA)
-  ├─ Web Speech API → 語音辨識 → 文字
+  ├─ MediaRecorder → 錄製音訊
+  ├─ fetch POST /api/transcribe → Whisper 轉文字
   ├─ 文字輸入框 → 直接送出
   └─ fetch POST /api/chat
         ↓
@@ -21,9 +22,15 @@
   瀏覽器 SpeechSynthesis → 語音播放
 ```
 
+## 使用的模型
+
+- **語音辨識** — Groq Whisper-large-v3-turbo（透過 OpenAI-compatible API）
+- **對話理解** — Claude API（經由 OpenClaw Gateway）
+- **語音回覆** — 瀏覽器 Web Speech API TTS，可調語速（0.5x ~ 2x）
+
 ## 功能
 
-- **語音輸入** — Web Speech API，支援中英文混合辨識
+- **語音輸入** — MediaRecorder 錄製音訊 → Whisper 轉文字，支援中英文混合辨識
 - **語音回覆** — 瀏覽器 TTS，可調語速（0.5x ~ 2x）
 - **語音中斷** — 回覆播放中說話可立即打斷，發送新訊息
 - **靜默自動送出** — 停頓 2 秒自動送出，不需手動按鍵

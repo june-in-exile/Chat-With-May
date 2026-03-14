@@ -1,9 +1,11 @@
 import express from 'express';
+import multer from 'multer';
 import config from './config.js';
 import { isValidToken, register, approve, listAll, notifyAdmin, notifyUserApproved } from './users.js';
 import { chat } from './chat.js';
 
 const app = express();
+const upload = multer({ storage: multer.memoryStorage() });
 
 // CORS (for Vercel frontend → tunnel API)
 app.use((req, res, next) => {
@@ -82,6 +84,37 @@ app.post('/api/chat', requireAuth, async (req, res) => {
   } catch (err) {
     console.error('[chat]', err.message);
     res.status(500).json({ error: err.name === 'AbortError' ? '回覆超時' : '伺服器錯誤' });
+  }
+});
+
+app.post('/api/transcribe', requireAuth, upload.single('audio'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: '沒有音訊檔案' });
+  const { groqKey } = config.auth;
+  if (!groqKey) return res.status(500).json({ error: '未配置 Groq API Key' });
+
+  try {
+    const formData = new FormData();
+    const blob = new Blob([req.file.buffer], { type: req.file.mimetype });
+    formData.append('file', blob, 'audio.webm');
+    formData.append('model', 'whisper-large-v3-turbo');
+    formData.append('language', 'zh');
+
+    const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${groqKey}` },
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const err = await response.text();
+      throw new Error(`Groq API ${response.status}: ${err.slice(0, 100)}`);
+    }
+
+    const data = await response.json();
+    res.json({ text: data.text });
+  } catch (err) {
+    console.error('[transcribe]', err.message);
+    res.status(500).json({ error: '語音辨識失敗' });
   }
 });
 
