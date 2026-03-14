@@ -20,6 +20,7 @@ const state = {
   silenceTimer: null,
   audioUnlocked: false,
   ttsPaused: false,
+  currentUtt: null,
   // Continuous listening
   micStream: null,       // persistent mic stream
   continuous: false,     // continuous mode active
@@ -98,7 +99,7 @@ async function doLogin() {
 // Logout
 $('logout-btn').addEventListener('click', () => {
   // Stop TTS playback and microphone
-  if (window.speechSynthesis) speechSynthesis.cancel();
+  stopTTS();
   stopContinuous();
   localStorage.removeItem('vc_token');
   state.authToken = '';
@@ -204,18 +205,15 @@ function beginSegment() {
     // Only process if user actually spoke
     if (state.hasSpeech && state.audioChunks.length > 0) {
       setMode('processing');
-      showText('辨識中…');
       const audioBlob = new Blob(state.audioChunks, { type: 'audio/webm' });
       const text = await transcribeAudio(audioBlob);
       if (text && text.trim()) {
         sendToAI(text);
       } else {
         // No speech detected — resume listening
-        showText('未能辨識語音，請重試');
         if (state.continuous) {
           beginSegment();
           setMode('listening');
-          showText('🎙️ 繼續說話…');
         } else {
           setMode('idle');
         }
@@ -231,7 +229,6 @@ function beginSegment() {
 
   recorder.start();
   setMode('listening');
-  showText('🎙️ 說話吧…');
 
   // Silence detection loop for this segment
   const analyser = state.analyser;
@@ -329,17 +326,22 @@ onTap($('mic-btn'), () => {
   if (state.continuous) {
     // Stop everything
     if (chatAbort) { chatAbort.abort(); chatAbort = null; }
-    if (state.mode === 'speaking') speechSynthesis.cancel();
+    stopTTS();
     stopContinuous();
   } else {
     // Enter continuous mode
     if (chatAbort) { chatAbort.abort(); chatAbort = null; }
-    if (state.mode === 'speaking') speechSynthesis.cancel();
+    stopTTS();
     startContinuous();
   }
 });
 
 // ── TTS ──
+
+function stopTTS() {
+  state.currentUtt = null;
+  if (window.speechSynthesis) speechSynthesis.cancel();
+}
 
 function unlockAudio() {
   if (state.audioUnlocked || !window.speechSynthesis) return;
@@ -366,14 +368,15 @@ function speak(text, fromIndex = 0) {
     return;
   }
 
-  speechSynthesis.cancel();
+  stopTTS();
   setMode('speaking');
 
   // Prevent listening during TTS to avoid echo feedback
   state.ttsPaused = true;
 
-  const safety = setTimeout(() => { speechSynthesis.cancel(); resumeAfterTTS(); }, 30000);
+  const safety = setTimeout(() => { stopTTS(); resumeAfterTTS(); }, 30000);
   const utt = new SpeechSynthesisUtterance(slice);
+  state.currentUtt = utt;
   utt.lang = 'zh-TW';
   utt.rate = state.speechRate;
   const voice = getChineseVoice();
@@ -381,11 +384,13 @@ function speak(text, fromIndex = 0) {
 
   utt.onboundary = (e) => { state.ttsCharIndex = fromIndex + e.charIndex; };
   utt.onend = () => {
+    if (state.currentUtt !== utt) return;
     clearTimeout(safety);
     state.ttsCharIndex = 0;
     resumeAfterTTS();
   };
   utt.onerror = () => {
+    if (state.currentUtt !== utt) return;
     clearTimeout(safety);
     resumeAfterTTS();
   };
@@ -394,7 +399,7 @@ function speak(text, fromIndex = 0) {
 }
 
 // TTS controls
-$('stop-btn').addEventListener('click', () => { speechSynthesis?.cancel(); resumeAfterTTS(); });
+$('stop-btn').addEventListener('click', () => { stopTTS(); resumeAfterTTS(); });
 $('replay-btn').addEventListener('click', () => { if (state.lastReply && state.mode !== 'processing') speak(state.lastReply); });
 
 $('speed-slider').addEventListener('input', () => {
@@ -421,10 +426,6 @@ function speakAck() {
   const voice = getChineseVoice();
   if (voice) utt.voice = voice;
   speechSynthesis.speak(utt);
-}
-
-function stopTTS() {
-  if (window.speechSynthesis) speechSynthesis.cancel();
 }
 
 async function sendToAI(text) {

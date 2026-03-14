@@ -57,6 +57,7 @@ sudo apt update && sudo apt install ffmpeg
 ### 設定環境變數
 
 在 `.env` 中：
+
 - `WHISPER_MODEL`: 模型大小 (`tiny`, `base`, `small`, `medium`, `large`)，預設為 `base`。
 - `GROQ_API_KEY`: 若留空，則自動切換為本地 Whisper。若填寫，則優先使用 Groq Cloud API（速度較快，適合 serverless 環境如 Vercel）。
 
@@ -125,4 +126,4 @@ npm run dev
 
 ## Live
 
-https://chat-with-may.vercel.app
+<https://chat-with-may.vercel.app>
