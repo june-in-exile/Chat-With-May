@@ -20,6 +20,11 @@ const state = {
   silenceTimer: null,
   audioUnlocked: false,
   ttsPaused: false,
+  // Continuous listening
+  micStream: null,       // persistent mic stream
+  continuous: false,     // continuous mode active
+  hasSpeech: false,      // did user speak in current segment
+  speechStarted: false, // has user started speaking in current segment
 };
 
 // ── UI Helpers ──
@@ -28,8 +33,14 @@ function setMode(mode) {
   state.mode = mode;
   $('orb').className = mode;
   $('status-indicator').className = mode === 'idle' ? 'ready' : mode;
-  $('status-text').textContent = { idle: '按下麥克風開始說話', listening: '🔴 聆聽中… 再按一次停止', processing: '思考中…', speaking: '回覆中…' }[mode] || '';
-  $('mic-btn').classList.toggle('active', mode === 'listening');
+  const labels = {
+    idle: state.continuous ? '🎙️ 對話中… 說話即可' : '按下麥克風開始說話',
+    listening: '🔴 聆聽中…',
+    processing: '思考中…',
+    speaking: '回覆中…',
+  };
+  $('status-text').textContent = labels[mode] || '';
+  $('mic-btn').classList.toggle('active', state.continuous);
 
   const busy = mode === 'processing' || mode === 'speaking';
   $('text-input').disabled = busy;
@@ -88,10 +99,7 @@ async function doLogin() {
 $('logout-btn').addEventListener('click', () => {
   // Stop TTS playback and microphone
   if (window.speechSynthesis) speechSynthesis.cancel();
-  stopListening();
-  state.ttsPaused = false;
-  clearTimeout(state.silenceTimer);
-  setMode('idle');
+  stopContinuous();
   localStorage.removeItem('vc_token');
   state.authToken = '';
   $('app').classList.add('hidden');
@@ -142,7 +150,7 @@ $('reg-btn').addEventListener('click', async () => {
   $('reg-btn').disabled = false;
 });
 
-// ── Speech Recognition (OpenAI Whisper) ──
+// ── Speech Recognition (Continuous Whisper) ──
 
 async function initSpeech() {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -151,98 +159,146 @@ async function initSpeech() {
   }
 }
 
-async function startListening() {
+// Open persistent mic stream and start continuous listening
+async function startContinuous() {
+  if (state.continuous) return;
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    state.audioChunks = [];
-    
-    // ── Silence Detection Setup ──
+    state.micStream = stream;
+    state.continuous = true;
+
+    // Audio analysis setup (persistent)
     const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioContext.state === 'suspended') await audioContext.resume();
     const analyser = audioContext.createAnalyser();
     const source = audioContext.createMediaStreamSource(stream);
     source.connect(analyser);
     analyser.fftSize = 256;
-    const bufferLength = analyser.frequencyBinCount;
-    const dataArray = new Uint8Array(bufferLength);
-    
     state.audioContext = audioContext;
     state.analyser = analyser;
-    let lastSoundTime = Date.now();
 
-    const checkSilence = () => {
-      if (!state.listening) return;
-      analyser.getByteFrequencyData(dataArray);
-      let sum = 0;
-      for (let i = 0; i < bufferLength; i++) sum += dataArray[i];
-      const average = sum / bufferLength;
-
-      // Threshold for "silence" - 10 might be too high for some mics, keeping it sensitive
-      if (average > 10) {
-        lastSoundTime = Date.now();
-      } else {
-        if (Date.now() - lastSoundTime > 3000) {
-          console.log('Silence detected, auto-submitting...');
-          stopListening(); // This will now set mode to processing immediately
-          return;
-        }
-      }
-      requestAnimationFrame(checkSilence);
-    };
-
-    const recorder = new MediaRecorder(stream);
-    state.mediaRecorder = recorder; // Set this early
-    
-    recorder.ondataavailable = (e) => {
-      if (e.data.size > 0) state.audioChunks.push(e.data);
-    };
-
-    recorder.onstop = async () => {
-      stream.getTracks().forEach(track => track.stop());
-      if (state.audioContext) {
-        state.audioContext.close();
-        state.audioContext = null;
-      }
-      
-      if (state.audioChunks.length > 0) {
-        showText('辨識中…');
-        const audioBlob = new Blob(state.audioChunks, { type: 'audio/webm' });
-        const text = await transcribeAudio(audioBlob);
-        if (text && text.trim()) {
-          sendToAI(text);
-        } else {
-          setMode('idle');
-          showText('未能辨識語音，請重試');
-        }
-      } else {
-        setMode('idle');
-      }
-    };
-
-    state.listening = true;
-    if (audioContext.state === 'suspended') await audioContext.resume();
-    recorder.start();
-    setMode('listening');
-    showText('正在聽你說話...');
-    requestAnimationFrame(checkSilence);
+    beginSegment();
   } catch (err) {
-    console.error('Mic error:', err);
     showText('無法開啟麥克風：' + err.message);
     setMode('idle');
   }
 }
 
-function stopListening() {
-  if (!state.listening) return;
+// Start recording a new segment on the existing mic stream
+function beginSegment() {
+  if (!state.continuous || !state.micStream) return;
+
+  state.audioChunks = [];
+  state.hasSpeech = false;
+  state.listening = true;
+  state.speechStarted = false;
+
+  const recorder = new MediaRecorder(state.micStream);
+  state.mediaRecorder = recorder;
+
+  recorder.ondataavailable = (e) => {
+    if (e.data.size > 0) state.audioChunks.push(e.data);
+  };
+
+  recorder.onstop = async () => {
+    // Only process if user actually spoke
+    if (state.hasSpeech && state.audioChunks.length > 0) {
+      setMode('processing');
+      showText('辨識中…');
+      const audioBlob = new Blob(state.audioChunks, { type: 'audio/webm' });
+      const text = await transcribeAudio(audioBlob);
+      if (text && text.trim()) {
+        sendToAI(text);
+      } else {
+        // No speech detected — resume listening
+        showText('未能辨識語音，請重試');
+        if (state.continuous) {
+          beginSegment();
+          setMode('listening');
+          showText('🎙️ 繼續說話…');
+        } else {
+          setMode('idle');
+        }
+      }
+    } else {
+      // No speech in segment — just restart
+      if (state.continuous && !state.ttsPaused) {
+        beginSegment();
+        setMode('listening');
+      }
+    }
+  };
+
+  recorder.start();
+  setMode('listening');
+  showText('🎙️ 說話吧…');
+
+  // Silence detection loop for this segment
+  const analyser = state.analyser;
+  const bufferLength = analyser.frequencyBinCount;
+  const dataArray = new Uint8Array(bufferLength);
+  let lastSoundTime = Date.now();
+  let speechStarted = false;
+  const SILENCE_THRESHOLD = 40;
+  const SILENCE_DURATION = 2000; // 2s pause after speech starts triggers processing
+
+  const checkSilence = () => {
+    if (!state.listening) return;
+    analyser.getByteFrequencyData(dataArray);
+    let sum = 0;
+    for (let i = 0; i < bufferLength; i++) sum += dataArray[i];
+    const average = sum / bufferLength;
+
+    if (average > SILENCE_THRESHOLD) {
+      lastSoundTime = Date.now();
+      if (!speechStarted) speechStarted = true;
+      state.hasSpeech = true;
+    } else if (speechStarted && Date.now() - lastSoundTime > SILENCE_DURATION) {
+      // User spoke then went silent — submit this segment
+      state.listening = false;
+      if (state.mediaRecorder && state.mediaRecorder.state !== 'inactive') {
+        state.mediaRecorder.stop();
+      }
+      return;
+    }
+    requestAnimationFrame(checkSilence);
+  };
+  requestAnimationFrame(checkSilence);
+}
+
+// Fully stop continuous mode and release mic
+function stopContinuous() {
+  state.continuous = false;
   state.listening = false;
-  setMode('processing'); // Immediate feedback
+  state.ttsPaused = false;
+
   if (state.mediaRecorder && state.mediaRecorder.state !== 'inactive') {
     state.mediaRecorder.stop();
   }
+  if (state.micStream) {
+    state.micStream.getTracks().forEach(track => track.stop());
+    state.micStream = null;
+  }
+  if (state.audioContext) {
+    state.audioContext.close();
+    state.audioContext = null;
+  }
+  setMode('idle');
 }
 
-function resumeRecognition() {
+// Legacy compat aliases
+function stopListening() {
+  if (state.continuous) {
+    stopContinuous();
+  }
+}
+
+// Resume listening after TTS finishes
+function resumeAfterTTS() {
   state.ttsPaused = false;
-  // Whisper doesn't need to "resume" like Web Speech API
+  if (state.continuous) {
+    beginSegment();
+  }
 }
 
 async function transcribeAudio(blob) {
@@ -267,15 +323,19 @@ async function transcribeAudio(blob) {
   }
 }
 
-// Mic button
+// Mic button — toggles continuous listening mode
 onTap($('mic-btn'), () => {
   unlockAudio();
-  if (state.listening) {
-    stopListening();
-  } else {
+  if (state.continuous) {
+    // Stop everything
     if (chatAbort) { chatAbort.abort(); chatAbort = null; }
     if (state.mode === 'speaking') speechSynthesis.cancel();
-    startListening();
+    stopContinuous();
+  } else {
+    // Enter continuous mode
+    if (chatAbort) { chatAbort.abort(); chatAbort = null; }
+    if (state.mode === 'speaking') speechSynthesis.cancel();
+    startContinuous();
   }
 });
 
@@ -302,7 +362,7 @@ function speak(text, fromIndex = 0) {
 
   const slice = text.slice(fromIndex);
   if (!slice || !window.speechSynthesis) {
-    if (state.listening) setMode('listening'); else setMode('idle');
+    resumeAfterTTS();
     return;
   }
 
@@ -310,10 +370,9 @@ function speak(text, fromIndex = 0) {
   setMode('speaking');
 
   // Prevent listening during TTS to avoid echo feedback
-  // (mic picks up speaker output → re-sent as input → infinite loop)
   state.ttsPaused = true;
 
-  const safety = setTimeout(() => { speechSynthesis.cancel(); state.ttsPaused = false; setMode('idle'); }, 30000);
+  const safety = setTimeout(() => { speechSynthesis.cancel(); resumeAfterTTS(); }, 30000);
   const utt = new SpeechSynthesisUtterance(slice);
   utt.lang = 'zh-TW';
   utt.rate = state.speechRate;
@@ -324,18 +383,18 @@ function speak(text, fromIndex = 0) {
   utt.onend = () => {
     clearTimeout(safety);
     state.ttsCharIndex = 0;
-    if (state.listening) { resumeRecognition(); setMode('listening'); } else setMode('idle');
+    resumeAfterTTS();
   };
   utt.onerror = () => {
     clearTimeout(safety);
-    if (state.listening) { resumeRecognition(); setMode('listening'); } else setMode('idle');
+    resumeAfterTTS();
   };
 
   speechSynthesis.speak(utt);
 }
 
 // TTS controls
-$('stop-btn').addEventListener('click', () => { speechSynthesis?.cancel(); state.ttsPaused = false; setMode('idle'); });
+$('stop-btn').addEventListener('click', () => { speechSynthesis?.cancel(); resumeAfterTTS(); });
 $('replay-btn').addEventListener('click', () => { if (state.lastReply && state.mode !== 'processing') speak(state.lastReply); });
 
 $('speed-slider').addEventListener('input', () => {
@@ -395,12 +454,17 @@ async function sendToAI(text) {
     speak(reply);
   } catch (err) {
     if (err.name === 'AbortError') {
-      // If listening, user interrupted — don't show error
       if (!state.listening) showText('回覆超時，請重試');
     } else {
       showText(`錯誤：${err.message}`);
     }
-    if (!state.listening) setMode('idle');
+    // Resume continuous listening on error
+    if (state.continuous) {
+      beginSegment();
+      setMode('listening');
+    } else {
+      setMode('idle');
+    }
   }
 }
 

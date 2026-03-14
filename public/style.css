@@ -690,6 +690,7 @@ body::before {
 #input-row {
   display: flex;
   width: 100%;
+  max-width: 100%;
   gap: 12px;
   background: var(--glass-bg);
   padding: 6px;
@@ -701,6 +702,7 @@ body::before {
 
 #text-input {
   flex: 1;
+  min-width: 0;
   height: 48px;
   min-height: 48px;
   background: transparent;
